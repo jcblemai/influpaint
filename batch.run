@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -p gpu
+#SBATCH --mem=105g
+#SBATCH -t 00-01:00:00
+#SBATCH --qos gpu_access
+#SBATCH --gres=gpu:4
+
+
+module purge
+module load anaconda/2021.11.ood gcc/9.1.0 cuda/11.4 julia/1.6.3 matlab/2022a dotnet/3.1.100
+module add anaconda
+conda activate diffusion_torch
+
+python diffusion_model_ref.py > out0.out 2>&1 &
