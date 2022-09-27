@@ -5,6 +5,8 @@ XDG_RUNTIME_DIR=""
 ipnport=$(shuf -i8000-9999 -n1)
 ipnip=$(hostname -i)
 
+#module load  gcc/9.1.0 julia/1.6.3 dotnet/3.1.100 cuda/11.4 matlab/2022a anaconda/2021.11
+
 echo "Open a local terminal (on your laptop) and copy this string into it:"
 echo ""
 echo -e "\tssh -N -L $ipnport:$ipnip:$ipnport $(whoami)@longleaf.unc.edu"
