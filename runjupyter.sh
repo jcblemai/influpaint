@@ -2,7 +2,8 @@
 
 
 XDG_RUNTIME_DIR=""
-ipnport=$(shuf -i8000-9999 -n1)
+#ipnport=$(shuf -i8000-9999 -n1)
+ipnport=8500
 ipnip=$(hostname -i)
 
 #module load  gcc/9.1.0 julia/1.6.3 dotnet/3.1.100 cuda/11.4 matlab/2022a anaconda/2021.11
