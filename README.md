@@ -1,13 +1,11 @@
 
 
 ## Useful repo cloned in repo:
-- git clone https://github.com/cmu-delphi/delphi-epidata.git
-- git clone https://github.com/jcblemai/Flusight-forecast-data.git
-- git clone https://github.com/openai/guided-diffusion.git
-- git clone https://github.com/andreas128/RePaint.git
-
-then
 ```
+git clone https://github.com/cmu-delphi/delphi-epidata.git
+git clone https://github.com/jcblemai/Flusight-forecast-data.git
+git clone https://github.com/openai/guided-diffusion.git
+git clone https://github.com/andreas128/RePaint.git
 cp delphi-epidata/src/client/delphi_epidata.py .
 ```
 
