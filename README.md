@@ -1,60 +1,76 @@
+# UNC_IDD InfluPainting
 
+## Instruction
+### Building the conda environment
+If on UNC HPC cluster longleaf, just ssh into longleaf longing node: `ssh chadi@longleaf.unc.edu`.
 
-## Useful repo cloned in repo:
-```
-git clone https://github.com/cmu-delphi/delphi-epidata.git
-git clone https://github.com/jcblemai/Flusight-forecast-data.git
-git clone https://github.com/openai/guided-diffusion.git
-git clone https://github.com/andreas128/RePaint.git
-cp delphi-epidata/src/client/delphi_epidata.py .
-```
-
-
-
-## Build conda enviroment
-Build conda enviroment:
+Build conda environment, do just once:
 ```bash
+## Only on UNC Longleaf
 module purge
-module load anaconda/2021.11.ood gcc/9.1.0 cuda/11.4 julia/1.6.3 matlab/2022a dotnet/3.1.100
-module add anaconda ## change from the on demand conda... I think it's necessary to have the right to modify stuff...
-# install jupyter on base environement:
-conda activate base 
-conda install ipykernel
-conda install -c conda-forge ipywidgets
+module load anaconda
 
-conda create -c conda-forge -n diffusion_torch2 seaborn scipy numpy pandas matplotlib ipykernel xarray netcdf4 h5netcdf tqdm
-conda activate diffusion_torch2
-conda install torchvision -c pytorch
-python -m ipykernel install --user --name diffusion_torch2 --display-name "Python (diffusion_torch22)"  # typo, but kept
-conda install -c conda-forge einops ipywidgets
-
+# initialized conda in your .bashrc:
+conda init
 ```
 
-## Run the diffusion
-Create synthetic data padded from the data notebook
-Run the diffusion from HF-annotated_diffusion.
-### run on a Volta GPU at UNC
+then disconnect & reconnect to you shell for the changes to be taken into account. You should see `(base)` on the left of the prompt, then:
 
-Create jupyter lab password (do once):
+```bash
+conda create -c conda-forge -n diffusion_torch seaborn scipy numpy pandas matplotlib ipykernel xarray netcdf4 h5netcdf tqdm jupyterlab einops ipywidgets
+conda activate diffusion_torch
+# the next commands are inside the diffusion_torch environment
+conda install torchvision -c pytorch
+# install a jupyter kernel for this environment
+python -m ipykernel install --user --name diffusion_torch --display-name "Python (diffusion_torch)"
+```
+
+Keep in mind that on longeaf one cannot modify the base enviroment (located /nas/longleaf/rhel8/apps/anaconda/2021.11) but can create new enviroment with everything needed in these.
+
+### Running for UNC OpenOndemand
+Now you can run on [UNC open Ondemand (OOD)](https://ondemand.rc.unc.edu), which is also a very convienient way to download data or to view figures outputed by the model. Just run a juypter notebook with request-gpu option selected and the following *Jupyter startup directory*
+```
+"/nas/longleaf/home/chadi/inpainting-idforecasts"
+```
+and the following *Additional Job Submission Arguments*:
+```
+--mem=32gb -p volta-gpu --qos=gpu_access --gres=gpu:1
+```
+(I don't the above arguments are really necessary, because on OOD you won't get a full volta gpu anway, but an A100 divided into small MIG 1g.5gb.
+
+Then go to to run diffusion once your job is allocated.
+
+### Running on a full compute note
+For the first time only, create jupyter lab password:
 ```bash
 sh create_notebook_password.sh
 ```
+Then launch a batch job to create a jupyter notebook server you can connect to (here requests one volta-gpu for 18 hours)
 
 Launch a job for 18h:
 ```bash
 srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:1 --qos=gpu_access --output=out.out sh runjupyter.sh &
 ```
+you will see
+```
+run: job 56345284 queued and waiting for resources
+```
+and after some time:
+```
+srun: job 56345284 has been allocated resources
+```
+
 then `cat out.out` which shows the instructions to go and make the ssh tunnel to connect on jupyter lab.
 
-### Run on OpenOndemand
-https://ondemand.rc.unc.edu (also very convenient to upload files/download figures)
-Run a juypter notebook with request-gpu and
-```
---mem=150gb -p volta-gpu --qos=gpu_access --gres=gpu:1
-```
-(I don't this is really necessary, because OOD GPU is not powerful enough (I think it’s an A100, but divided into small MIG 1g.5gb).
-as Additional Job Submission Arguments and
-```
-"/nas/longleaf/home/chadi/inpainting-idforecasts"
-```
-as Jupyter startup directory
+
+## Run the diffusion
+Make sure on the upper right corner, that the conda enviroment kernel `Python (diffusion_torch)` is activated.
+
+Create synthetic data padded from the data notebook
+Run the diffusion from HF-annotated_diffusion.
+### run on a Volta GPU at UNC
+
+
+
+
+
