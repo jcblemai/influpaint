@@ -45,18 +45,32 @@ For the first time only, create jupyter lab password:
 ```bash
 sh create_notebook_password.sh
 ```
-Then launch a batch job to create a jupyter notebook:
+Then launch a batch job to create a jupyter notebook server you can connect to (here requests one volta-gpu for 18 hours)
+
+Launch a job for 18h:
+```bash
+srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:1 --qos=gpu_access --output=out.out sh runjupyter.sh &
+```
+you will see
+```
+run: job 56345284 queued and waiting for resources
+```
+and after some time:
+```
+srun: job 56345284 has been allocated resources
+```
+
+then `cat out.out` which shows the instructions to go and make the ssh tunnel to connect on jupyter lab.
+
 
 ## Run the diffusion
+Make sure on the upper right corner, that the conda enviroment kernel `Python (diffusion_torch)` is activated.
+
 Create synthetic data padded from the data notebook
 Run the diffusion from HF-annotated_diffusion.
 ### run on a Volta GPU at UNC
 
 
 
-Launch a job for 18h:
-```bash
-srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:1 --qos=gpu_access --output=out.out sh runjupyter.sh &
-```
-then `cat out.out` which shows the instructions to go and make the ssh tunnel to connect on jupyter lab.
+
 
