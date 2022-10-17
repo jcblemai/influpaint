@@ -17,7 +17,7 @@ conda init
 then disconnect & reconnect to you shell for the changes to be taken into account. You should see `(base)` on the left of the prompt, then:
 
 ```bash
-conda create -c conda-forge -n diffusion_torch seaborn scipy numpy pandas matplotlib ipykernel xarray netcdf4 h5netcdf tqdm jupyterlab einops ipywidgets
+conda create -c conda-forge -n diffusion_torch seaborn scipy numpy pandas matplotlib ipykernel xarray netcdf4 h5netcdf tqdm  einops ipywidgets jupyterlab # (if not on longleaf, you don't have to install the last two packages)
 conda activate diffusion_torch
 # the next commands are inside the diffusion_torch environment
 conda install torchvision -c pytorch
