@@ -22,7 +22,7 @@ echo "This will bring up jupyter in your local web browser. Log in using the jup
 echo ""
 echo "When you are finished with your session and have logged out of jupyter in your local web brower be sure to return to this Longleaf terminal and type Ctrl-C (it might be necessary to do Ctrl-C repeatedly a few times). You should also do Ctrl-C back in your local terminal."
 
-jupyter lab --no-browser --port=$ipnport --ip=$ipnip 
+~/.conda/envs/diffusion_torch/bin/jupyter lab --no-browser --port=$ipnport --ip=$ipnip 
 
 wait
 
