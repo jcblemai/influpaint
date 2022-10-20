@@ -40,7 +40,7 @@ and the following *Additional Job Submission Arguments*:
 
 Then go to to run diffusion once your job is allocated.
 
-### Running on a full compute note
+### Running on a full compute node with Volta GUP
 For the first time only, create jupyter lab password:
 ```bash
 sh create_notebook_password.sh
@@ -66,11 +66,20 @@ then `cat out.out` which shows the instructions to go and make the ssh tunnel to
 ## Run the diffusion
 Make sure on the upper right corner, that the conda enviroment kernel `Python (diffusion_torch)` is activated.
 
-Create synthetic data padded from the data notebook
-Run the diffusion from HF-annotated_diffusion.
-### run on a Volta GPU at UNC
+Create synthetic data from the `dataset_builder.ipynb` notebook, and run the inpainting forecast from `inpaintingFluForecasts.ipynb`
 
 
+## Useful repo
+```bash
+git clone https://github.com/andreas128/RePaint.git referenceimplementations/RePaint
+git clone https://github.com/openai/guided-diffusion.git referenceimplementations/guided-diffusion
+git clone https://github.com/jcblemai/Flusight-forecast-data.git datasets/Flusight-forecast-data
+git clone https://github.com/cmu-delphi/delphi-epidata.git datasets/delphi-epidata
+```
+then to update your repository, type:
+```
+./update_data.sh
+```
 
 
 

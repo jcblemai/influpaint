@@ -1,3 +1,13 @@
+datasets/delphi-epidata/
+datasets/Flusight-forecast-data/
+datasets/stanford_cars/
+datasets/synthetic/SMH_R1/
+helpers/delphi_epidata.py
+referenceimplementations/
+
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
