@@ -82,4 +82,22 @@ then to update your repository, type:
 ```
 
 
+## Installing git lfs on longleaf
+```bash
+https://github.com/git-lfs/git-lfs/releases/download/v3.2.0/git-lfs-linux-amd64-v3.2.0.tar.gz
+tar -xf git-lfs-linux-amd64-v3.2.0.tar.gz
+cd git-lfs-3.2.0
+export PREFIX=$HOME/bin
+./install.sh
+```
+Make sure it is rightly installed & in the path. If needed edit `.profile` as
+```
+if [ -d "$HOME/bin/bin" ] ; then
+  PATH="$PATH:$HOME/bin/bin"
+fi
+```
 
+```bash
+git lfs install
+git lfs pull
+```
