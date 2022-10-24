@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
 import epiweeks
+import torch # todo: separate dataset classes from data utils
+import xarray as xr
 
 def padto64x64(x):
     return np.pad(x, ((0, 64-x.shape[0]), (0, 64-x.shape[1])), mode='constant', constant_values=0)
@@ -14,6 +16,8 @@ flusight_locations['geoid'] = flusight_locations['location']+'000'
 flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
 flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
 flusight_locations.drop(columns=['location'], inplace=True)
+
+
 
 def get_location_name(location_code):
     return flusight_locations[flusight_locations['location_code']==location_code]['location_name'].values[0]
@@ -113,7 +117,7 @@ def get_from_epidata(dataset, locations="all", write=True, download=True):
     return df
 
 class FluDynamicsDataset1D(torch.utils.data.Dataset):
-    def __init__(self, dataset_type, download=True, transform=None):
+    def __init__(self, dataset_type, download=False, transform=None):
         """
         Args:
             transform (callable, optional): Optional transform to be applied
@@ -125,14 +129,15 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         self.transform = transform
 
         if dataset_type == "onlyfluview":
-            samples = []
+            self.samples = []
             fluview = get_from_epidata(dataset="fluview", download=download, write=False)
             df = fluview[fluview['location_code'].isin(flusight_locations.location_code)]
             df_piv = df.pivot(columns='location_code', values='ili', index=["fluseason", "fluseason_fraction"])
-            for season in fluview_piv.index.unique(level='fluseason'):
+            for season in df_piv.index.unique(level='fluseason'):
                 array = df_piv.loc[season][flusight_locations.location_code].to_numpy()
-                samples.append(padto64x64(array))
-            self.samples = np.array(samples)
+                array[np.isnan(array)] = 0
+                self.samples.append(np.array([padto64x64(array)])) # need one dimension for feature/channel
+                
         elif dataset_type == "all":
             self.flu_dyn = {
                 "flusurv": get_from_epidata(dataset="flusurv", download=download, write=False),
@@ -150,7 +155,7 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         
         
     def __len__(self):
-        return len(self.flu_dyn.sample)
+        return len(self.samples)
     
     def __getitem__(self, idx):
         frame, idx = self.getitem_nocast(idx)
