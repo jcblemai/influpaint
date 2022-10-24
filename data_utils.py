@@ -19,6 +19,7 @@ flusight_locations.drop(columns=['location'], inplace=True)
 
 
 
+
 def get_location_name(location_code):
     return flusight_locations[flusight_locations['location_code']==location_code]['location_name'].values[0]
 
@@ -87,6 +88,8 @@ def get_from_epidata(dataset, locations="all", write=True, download=True):
     elif dataset == "flusight":
         df = pd.read_csv("datasets/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv", parse_dates=True, index_col='date')
         df['week_enddate'] = df.index
+    else:
+        raise NotImplementedError(f"Dataset {dataset} not implemented")
 
     df['week_enddate'] = pd.to_datetime(df['week_enddate'])
 
@@ -99,14 +102,18 @@ def get_from_epidata(dataset, locations="all", write=True, download=True):
         df["location_tomerge"] = df["location_tomerge"].str.replace("NY_albany", "NY")
         df["location_tomerge"] = df["location_tomerge"].str.replace("NY_rochester", "NY")
         right_on = "abbreviation"
+        value_col = 'rate_overall'
     elif dataset == "fluview": 
         df["location_tomerge"] = df['region'].str.upper()
         df["location_tomerge"] = df["location_tomerge"].str.replace("jfk".upper(), "NY")
         df["location_tomerge"] = df["location_tomerge"].str.replace("ny_minus_jfk".upper(), "NY")
         right_on = "abbreviation"
+        value_col = "ili"
     elif dataset == "flusight":
+        print("/!\ Make sure ./update_data.sh is ran AND that the fork is updated")
         df["location_tomerge"] = df["location"]
         right_on = "location_code"
+        value_col = "value"
     df = pd.merge(df, flusight_locations, left_on="location_tomerge", right_on=right_on, how='left')
     df.drop(columns=['location_tomerge'], inplace=True)
 
