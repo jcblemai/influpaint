@@ -2,26 +2,10 @@ import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
 import epiweeks
-import torch # todo: separate dataset classes from data utils
 import xarray as xr
 
-def padto64x64(x):
-    return np.pad(x, ((0, 64-x.shape[0]), (0, 64-x.shape[1])), mode='constant', constant_values=0)
 
 flu_season_start_date = pd.to_datetime("2020-12-15")
-
-# locations, in the right order
-flusight_locations = pd.read_csv("datasets/Flusight-forecast-data/data-locations/locations.csv")
-flusight_locations['geoid'] = flusight_locations['location']+'000'
-flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
-flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
-flusight_locations.drop(columns=['location'], inplace=True)
-
-
-
-
-def get_location_name(location_code):
-    return flusight_locations[flusight_locations['location_code']==location_code]['location_name'].values[0]
 
 def get_fluseason_year(ts):
     if ts.dayofyear >= flu_season_start_date.dayofyear:
@@ -34,6 +18,83 @@ def get_fluseason_fraction(ts):
         return (ts.dayofyear - flu_season_start_date.dayofyear) / 365
     else:
         return ((ts.dayofyear + 365) - flu_season_start_date.dayofyear)  / 365
+
+# locations, in the right order
+class SpatialSetup():
+    def __init__(self, locations:pd.DataFrame):
+        self.locations_df = locations
+
+        assert "location_code" in self.locations_df.columns
+        #self.locations_df = self.locations_df.set_index("location_code", drop=False)
+        if "location_name" not in self.locations_df.columns:
+            self.locations_df["location_name"] = self.locations_df["location_code"]
+
+        self.locations = self.locations_df.index.to_list()
+        
+        print(f"Spatial Setup with {len(self.locations_df)} locations.")
+
+    def get_location_name(self, location_code):
+        if pd.isna(location_code):
+            return "NA"
+        return self.locations_df[self.locations_df['location_code']==location_code]['location_name'].values[0]
+
+    @classmethod
+    def from_flusight(cls, csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv"):
+        flusight_locations = pd.read_csv(csv_path)
+        flusight_locations['geoid'] = flusight_locations['location']+'000'
+        flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
+        flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
+        flusight_locations.drop(columns=['location'], inplace=True)
+        return cls(locations = flusight_locations)
+
+
+def padto64x64(x: np.ndarray) -> np.ndarray:
+    return np.pad(x, ((0, 64-x.shape[0]), (0, 64-x.shape[1])), mode='constant', constant_values=0)
+
+def dataframe_to_xarray(df: pd.DataFrame,
+          spatial_setup: SpatialSetup = None,
+          xarray_name = 'data', 
+          xarrax_features = 'value', 
+          date_column = 'week_enddate', 
+          value_column = 'value', 
+          pad=True) -> xr.DataArray:
+    """
+    Convert a long form dataframe to an xarray. Dataframe must have columns:
+    - location_code
+    - value
+    The dataset is a xarray object stored as netcdf on disk. 
+    It has dimensions `(feature, date, place)` 
+    where date and place are padded to have dimension 64.
+    - dates are Saturdays
+    - places are location from Flusight data locations
+    - samples are integers
+    """
+    df_piv = df.pivot(columns='location_code', values=value_column, index=date_column)
+
+    if not isinstance(xarrax_features, list):
+        xarrax_features = [xarrax_features]
+    
+    if spatial_setup is None:
+        print("No spatial setup provided, using all locations in the dataframe.")
+        places = df_piv.columns.to_list()
+    else:
+        df_piv = df_piv[spatial_setup['location_code']] # make sure order is right w.r.t flusight_locations
+        places = spatial_setup['location_code']
+
+    df_xarr = xr.DataArray(np.array([df_piv.to_numpy()]),
+                name = xarray_name,
+                coords={'feature': xarrax_features, 
+                        'date': list(df_piv.index), 
+                        'place': places}, 
+                dims=["feature", "date", "place"])
+    if pad:
+        df_xarr = df_xarr.pad({'date': (0, 64-len(df_xarr.date)), 
+                            'place':(0, 64-len(df_xarr.place))}, 
+                            mode='constant', 
+                            constant_values=0)
+    
+    return df_xarr
+
 
 def get_all_locations(dataset):
     if dataset == "flusurv":
@@ -50,7 +111,7 @@ def get_all_locations(dataset):
     return locations
 
 
-def get_from_epidata(dataset, locations="all", write=True, download=True):
+def get_from_epidata(dataset, spatial_setup=None, locations="all", value_col=None, write=True, download=True):
     """ 
     Read a dataset from epidata. Each dataset is a dataframe with columns:
     - 'week_enddate' (datetime)
@@ -96,26 +157,35 @@ def get_from_epidata(dataset, locations="all", write=True, download=True):
     if write:  # write before merge
         df.to_csv(f"datasets/{dataset}.csv", index=False)
     
-    # merge with locations, taking care of new york
-    if dataset == "flusurv": 
-        df["location_tomerge"] = df["location"]
-        df["location_tomerge"] = df["location_tomerge"].str.replace("NY_albany", "NY")
-        df["location_tomerge"] = df["location_tomerge"].str.replace("NY_rochester", "NY")
-        right_on = "abbreviation"
-        value_col = 'rate_overall'
-    elif dataset == "fluview": 
-        df["location_tomerge"] = df['region'].str.upper()
-        df["location_tomerge"] = df["location_tomerge"].str.replace("jfk".upper(), "NY")
-        df["location_tomerge"] = df["location_tomerge"].str.replace("ny_minus_jfk".upper(), "NY")
-        right_on = "abbreviation"
-        value_col = "ili"
-    elif dataset == "flusight":
-        print("/!\ Make sure ./update_data.sh is ran AND that the fork is updated")
-        df["location_tomerge"] = df["location"]
-        right_on = "location_code"
-        value_col = "value"
-    df = pd.merge(df, flusight_locations, left_on="location_tomerge", right_on=right_on, how='left')
-    df.drop(columns=['location_tomerge'], inplace=True)
+    if spatial_setup is not None:
+        # merge with locations, taking care of new york
+        if dataset == "flusurv": 
+            df["location_tomerge"] = df["location"]
+            df["location_tomerge"] = df["location_tomerge"].str.replace("NY_albany", "NY")
+            df["location_tomerge"] = df["location_tomerge"].str.replace("NY_rochester", "NY")
+            right_on = "abbreviation"
+        elif dataset == "fluview": 
+            df["location_tomerge"] = df['region'].str.upper()
+            df["location_tomerge"] = df["location_tomerge"].str.replace("jfk".upper(), "NY")
+            df["location_tomerge"] = df["location_tomerge"].str.replace("ny_minus_jfk".upper(), "NY")    
+            right_on = "abbreviation"
+        elif dataset == "flusight":
+            print("/!\ Make sure ./update_data.sh is ran AND that the fork is updated")
+            df["location_tomerge"] = df["location"]
+            right_on = "location_code"
+
+        df = pd.merge(df, spatial_setup.locations_df, left_on="location_tomerge", right_on=right_on, how='left')
+        df.drop(columns=['location_tomerge'], inplace=True)
+    
+    if value_col is None:
+        if dataset == "flusight":
+            value_col = "value"
+        elif dataset == "flusurv":
+            value_col = "rate_overall"
+        elif dataset == "fluview":
+            value_col = "ili"
+         
+    df["value"] = df[value_col]
 
     # get the flu season year and it's fraction elapsed
     df["fluseason"]= df["week_enddate"].apply(get_fluseason_year)
@@ -123,139 +193,3 @@ def get_from_epidata(dataset, locations="all", write=True, download=True):
 
     return df
 
-class FluDynamicsDataset1D(torch.utils.data.Dataset):
-    def __init__(self, dataset_type, download=False, transform=None):
-        """
-        Args:
-            transform (callable, optional): Optional transform to be applied
-            on a sample.
-        """
-        self.dataset_type = dataset_type
-
-
-        self.transform = transform
-
-        if dataset_type == "onlyfluview":
-            self.samples = []
-            fluview = get_from_epidata(dataset="fluview", download=download, write=False)
-            df = fluview[fluview['location_code'].isin(flusight_locations.location_code)]
-            df_piv = df.pivot(columns='location_code', values='ili', index=["fluseason", "fluseason_fraction"])
-            for season in df_piv.index.unique(level='fluseason'):
-                array = df_piv.loc[season][flusight_locations.location_code].to_numpy()
-                array[np.isnan(array)] = 0
-                self.samples.append(np.array([padto64x64(array)])) # need one dimension for feature/channel
-                
-        elif dataset_type == "all":
-            self.flu_dyn = {
-                "flusurv": get_from_epidata(dataset="flusurv", download=download, write=False),
-                "fluview": get_from_epidata(dataset="fluview", download=download, write=False),
-                "flusight": get_from_epidata(dataset="flusight", download=download, write=False),
-            }
-        
-        #if channels = 1:
-        #    self.flu_dyn=self.flu_dyn.isel(feature=0)
-        
-        # let's store the min and max
-        #self.max_per_feature = self.flu_dyn.max(dim=["date", "place", "sample"])
-        #print(f"created dataset with scale {np.array(self.max_per_feature)}")
-        #self.flu_dyn_norm = (np.sqrt(self.flu_dyn)/np.sqrt(self.max_per_feature))*2#-1
-        
-        
-    def __len__(self):
-        return len(self.samples)
-    
-    def __getitem__(self, idx):
-        frame, idx = self.getitem_nocast(idx)
-        return torch.from_numpy(frame).float(), idx
-    
-    def getitem_nocast(self, idx):
-        if torch.is_tensor(idx):
-            idxl = idx.tolist()
-        else:
-            idxl=idx
-            
-        epi_frame = self.samples[idxl]#.astype(np.float32)
-
-        #shoudle be a dict ?
-        #sample = {'image': image, 'landmarks': landmarks}
-
-        if self.transform:
-            epi_frame = self.transform(epi_frame)
-
-        return epi_frame, idx
-    
-    def unnormalized(self, array):
-        return array
-    
-    def test(self, idx):
-        """
-        test that we can transform and go back & get the same thing
-        """
-        epi_frame_n, idx_n = self.getitem_nocast(idx)
-        assert idx_n == idx
-        assert (np.abs(self.unnormalized(epi_frame_n) - self.flu_dyn.sel(sample=idx)) < 1e-3).all()
-
-
-class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
-    def __init__(self, netcdf_file, transform=None):
-        """
-        Args:
-            netcdf_file (string): Path to the netcdf file with the xarray data
-            transform (callable, optional): Optional transform to be applied
-            on a sample.
-        """
-        self.flu_dyn = xr.open_dataarray(netcdf_file)
-        self.transform = transform
-        
-        #if channels = 1:
-        #    self.flu_dyn=self.flu_dyn.isel(feature=0)
-        
-        # let's store the min and max
-        self.max_per_feature = self.flu_dyn.max(dim=["date", "place", "sample"])
-        print(f"created dataset with scale {np.array(self.max_per_feature)}")
-        self.flu_dyn_norm = (np.sqrt(self.flu_dyn)/np.sqrt(self.max_per_feature))*2#-1
-        
-        
-    def __len__(self):
-        return len(self.flu_dyn.sample)
-    
-    def __getitem__(self, idx):
-        frame, idx = self.getitem_nocast(idx)
-        return torch.from_numpy(frame).float(), idx
-    
-    def getitem_nocast(self, idx):
-        if torch.is_tensor(idx):
-            idxl = idx.tolist()
-        else:
-            idxl=idx
-            
-        epi_frame = self.flu_dyn_norm.sel(sample=idxl).squeeze().to_numpy()#.astype(np.float32)
-
-        #shoudle be a dict ?
-        #sample = {'image': image, 'landmarks': landmarks}
-
-        if self.transform:
-            epi_frame = self.transform(epi_frame)
-
-        return epi_frame, idx
-    
-    def unnormalized(self, array):
-        #return (((array)/3)*np.sqrt((self.max_per_feature.to_numpy())[:,np.newaxis, np.newaxis]))**2
-        return (((array)/2)*np.sqrt((self.max_per_feature.to_numpy())[:,np.newaxis, np.newaxis]))**2
-        #return ((array+.75)*np.sqrt((self.max_per_feature.to_numpy())[:,np.newaxis, np.newaxis]))**2
-    
-    def test(self, idx):
-        """
-        test that we can transform and go back & get the same thing
-        """
-        epi_frame_n, idx_n = self.getitem_nocast(idx)
-        assert idx_n == idx
-        #print(self.unnormalized(epi_frame_n).shape, self.unnormalized(epi_frame_n)[0,0,0])
-        #print(self.flu_dyn.sel(sample=idx).shape, self.flu_dyn.sel(sample=idx)[0,0,0])
-        assert (np.abs(self.unnormalized(epi_frame_n) - self.flu_dyn.sel(sample=idx)) < 1e-3).all()
-    
-
-def randomscale_transforms(image, max, min):
-    import random
-    scale = random.uniform(min, max)
-    return image*scale
