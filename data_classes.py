@@ -74,7 +74,7 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         assert (np.abs(self.unnormalized(epi_frame_n) - self.flu_dyn.sel(sample=idx)) < 1e-3).all()
 
 
-class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
+class FluDynamicsSyntheticDatasetLegacy(torch.utils.data.Dataset):
     def __init__(self, netcdf_file, transform=None, channels=3):
         """
         Args:
@@ -91,9 +91,12 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         
         # let's store the min and max
         self.max_per_feature = self.flu_dyn.max(dim=["date", "place", "sample"])
+        self.f
         print(f"created dataset with scale {np.array(self.max_per_feature)}")
         self.flu_dyn_norm = (np.sqrt(self.flu_dyn)/np.sqrt(self.max_per_feature))*2#-1
-        
+
+    def add_transform(self, transform):
+        self.transform = transform
         
     def __len__(self):
         return len(self.flu_dyn.sample)
@@ -133,9 +136,33 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         #print(self.flu_dyn.sel(sample=idx).shape, self.flu_dyn.sel(sample=idx)[0,0,0])
         assert (np.abs(self.unnormalized(epi_frame_n) - self.flu_dyn.sel(sample=idx)) < 1e-3).all()
         print("test passed: back and forth transformation is ok ✅")
+
+
     
+    
+
+# These transform applies to a numpy object with dimensions
+#  (feature, date, place)
 
 def transform_randomscale(image, max, min):
     import random
     scale = random.uniform(min, max)
     return image*scale
+
+def transform_channelwisescale(image, scale): # TODO write for three channel like it was above
+    return image*scale
+
+def transform_channelwisescale_inv(image, scale):
+    return image/scale
+
+def transform_sqrt(image):
+    return np.sqrt(image)
+
+def transform_sqrt_inv(image):
+    return image**2
+
+def transform_shift(image, shift=-1):
+    return image+shift
+
+def transform_shift_inv(image, shift=-1):
+    return image-shift
