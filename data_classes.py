@@ -2,35 +2,33 @@ import pandas as pd
 import numpy as np
 import torch 
 import xarray as xr
+import data_utils
 
 
 class FluDynamicsDataset1D(torch.utils.data.Dataset):
-    def __init__(self, dataset_type, download=False, transform=None):
+    def __init__(self, dataset_type, flusetup, download=False, transform=None):
         """
         Args:
             transform (callable, optional): Optional transform to be applied
             on a sample.
         """
+        self.flusetup = flusetup
         self.dataset_type = dataset_type
-
         self.transform = transform
 
         if dataset_type == "onlyfluview":
             self.samples = []
-            fluview = get_from_epidata(dataset="fluview", download=download, write=False)
-            df = fluview[fluview['location_code'].isin(flusight_locations.location_code)]
-            df_piv = df.pivot(columns='location_code', values='ili', index=["fluseason", "fluseason_fraction"])
-            for season in df_piv.index.unique(level='fluseason'):
-                array = df_piv.loc[season][flusight_locations.location_code].to_numpy()
-                array[np.isnan(array)] = 0
-                self.samples.append(np.array([padto64x64(array)])) # need one dimension for feature/channel
+            fluview = data_utils.get_from_epidata(dataset="fluview", flusetup=self.flusetup, download=download, write=False)
+            df = fluview[fluview['location_code'].isin(flusetup.locations)]
                 
-        elif dataset_type == "all":
-            self.flu_dyn = {
-                "flusurv": get_from_epidata(dataset="flusurv", download=download, write=False),
-                "fluview": get_from_epidata(dataset="fluview", download=download, write=False),
-                "flusight": get_from_epidata(dataset="flusight", download=download, write=False),
-            }
+        #elif dataset_type == "all":
+        #    self.flu_dyn = {
+        #        "flusurv": data_utils.get_from_epidata(dataset="flusurv", download=download, write=False),
+        #        "fluview": data_utils.get_from_epidata(dataset="fluview", download=download, write=False),
+        #        "flusight": data_utils.get_from_epidata(dataset="flusight", download=download, write=False),
+        #    }
+
+        self.samples = data_utils.dataframe_to_arraylist(df=df, flusetup=self.flusetup)
         
         #if channels = 1:
         #    self.flu_dyn=self.flu_dyn.isel(feature=0)
@@ -45,8 +43,8 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         return len(self.samples)
     
     def __getitem__(self, idx):
-        frame, idx = self.getitem_nocast(idx)
-        return torch.from_numpy(frame).float(), idx
+        frame = self.getitem_nocast(idx)
+        return torch.from_numpy(frame).float()
     
     def getitem_nocast(self, idx):
         if torch.is_tensor(idx):
@@ -62,7 +60,7 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         if self.transform:
             epi_frame = self.transform(epi_frame)
 
-        return epi_frame, idx
+        return epi_frame
     
     def unnormalized(self, array):
         return array
@@ -77,7 +75,7 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
 
 
 class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
-    def __init__(self, netcdf_file, transform=None):
+    def __init__(self, netcdf_file, transform=None, channels=3):
         """
         Args:
             netcdf_file (string): Path to the netcdf file with the xarray data
@@ -87,8 +85,9 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         self.flu_dyn = xr.open_dataarray(netcdf_file)
         self.transform = transform
         
-        #if channels = 1:
-        #    self.flu_dyn=self.flu_dyn.isel(feature=0)
+        if channels == 1:
+            flu_dyn = self.flu_dyn.sel(feature="incidH_FluA")+ self.flu_dyn.sel(feature="incidH_FluB")
+            self.flu_dyn = flu_dyn.expand_dims('feature', axis=1).assign_coords(feature=('feature', ['incidH']))
         
         # let's store the min and max
         self.max_per_feature = self.flu_dyn.max(dim=["date", "place", "sample"])
@@ -100,8 +99,8 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         return len(self.flu_dyn.sample)
     
     def __getitem__(self, idx):
-        frame, idx = self.getitem_nocast(idx)
-        return torch.from_numpy(frame).float(), idx
+        frame = self.getitem_nocast(idx)
+        return torch.from_numpy(frame).float()
     
     def getitem_nocast(self, idx):
         if torch.is_tensor(idx):
@@ -109,7 +108,8 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         else:
             idxl=idx
             
-        epi_frame = self.flu_dyn_norm.sel(sample=idxl).squeeze().to_numpy()#.astype(np.float32)
+        # should be squeezed when channel = 3 ?
+        epi_frame = self.flu_dyn_norm.sel(sample=idxl).to_numpy()#.astype(np.float32)
 
         #shoudle be a dict ?
         #sample = {'image': image, 'landmarks': landmarks}
@@ -117,7 +117,7 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         if self.transform:
             epi_frame = self.transform(epi_frame)
 
-        return epi_frame, idx
+        return epi_frame
     
     def unnormalized(self, array):
         #return (((array)/3)*np.sqrt((self.max_per_feature.to_numpy())[:,np.newaxis, np.newaxis]))**2
@@ -128,14 +128,14 @@ class FluDynamicsSyntheticDataset(torch.utils.data.Dataset):
         """
         test that we can transform and go back & get the same thing
         """
-        epi_frame_n, idx_n = self.getitem_nocast(idx)
-        assert idx_n == idx
+        epi_frame_n = self.getitem_nocast(idx)
         #print(self.unnormalized(epi_frame_n).shape, self.unnormalized(epi_frame_n)[0,0,0])
         #print(self.flu_dyn.sel(sample=idx).shape, self.flu_dyn.sel(sample=idx)[0,0,0])
         assert (np.abs(self.unnormalized(epi_frame_n) - self.flu_dyn.sel(sample=idx)) < 1e-3).all()
+        print("test passed: back and forth transformation is ok ✅")
     
 
-def randomscale_transforms(image, max, min):
+def transform_randomscale(image, max, min):
     import random
     scale = random.uniform(min, max)
     return image*scale

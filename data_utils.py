@@ -15,7 +15,7 @@ class FluSetup():
         if "location_name" not in self.locations_df.columns:
             self.locations_df["location_name"] = self.locations_df["location_code"]
 
-        self.locations = self.locations_df.index.to_list()
+        self.locations = self.locations_df["location_code"].to_list()
         
         print(f"Spatial Setup with {len(self.locations_df)} locations.")
 
@@ -76,7 +76,7 @@ def dataframe_to_xarray(df: pd.DataFrame,
         xarrax_features = [xarrax_features]
     
     if flusetup is None:
-        print("No FluSetup provided, using all locations in the dataframe.")
+        print(" ⚠️ No FluSetup provided, using all locations in the dataframe.")
         places = df_piv.columns.to_list()
     else:
         df_piv = df_piv[flusetup.locations_df['location_code']] # make sure order is right w.r.t flusight_locations
@@ -96,6 +96,19 @@ def dataframe_to_xarray(df: pd.DataFrame,
     
     return df_xarr
 
+def dataframe_to_arraylist(df: pd.DataFrame,
+          flusetup: FluSetup = None,
+          value_column = 'value') -> np.ndarray:
+
+    samples = []
+    
+    df_piv = df.pivot(columns='location_code', values=value_column, index=["fluseason", "fluseason_fraction"])
+    for season in df_piv.index.unique(level='fluseason'):
+        array = df_piv.loc[season][flusetup.locations].to_numpy()  # make sure order is right w.r.t flusight_locations
+        array[np.isnan(array)] = 0                                 # replace NaNs with 0
+        samples.append(np.array([padto64x64(array)]))              # pad to 64x64 and add a dimension for channel
+    
+    return samples
 
 def get_all_locations(dataset):
     if dataset == "flusurv":
