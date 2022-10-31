@@ -13,7 +13,6 @@ class FluDynamicsDataset1D(torch.utils.data.Dataset):
         """
         self.dataset_type = dataset_type
 
-
         self.transform = transform
 
         if dataset_type == "onlyfluview":

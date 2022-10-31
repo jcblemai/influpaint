@@ -4,24 +4,10 @@ from helpers.delphi_epidata import Epidata
 import epiweeks
 import xarray as xr
 
-
-flu_season_start_date = pd.to_datetime("2020-12-15")
-
-def get_fluseason_year(ts):
-    if ts.dayofyear >= flu_season_start_date.dayofyear:
-        return ts.year 
-    else:
-        return ts.year - 1
-
-def get_fluseason_fraction(ts):
-    if ts.dayofyear >= flu_season_start_date.dayofyear:
-        return (ts.dayofyear - flu_season_start_date.dayofyear) / 365
-    else:
-        return ((ts.dayofyear + 365) - flu_season_start_date.dayofyear)  / 365
-
 # locations, in the right order
-class SpatialSetup():
-    def __init__(self, locations:pd.DataFrame):
+class FluSetup():
+    """ Contains locations and season info"""
+    def __init__(self, locations:pd.DataFrame, flu_season_start_date=pd.to_datetime("2020-12-15")):
         self.locations_df = locations
 
         assert "location_code" in self.locations_df.columns
@@ -33,26 +19,41 @@ class SpatialSetup():
         
         print(f"Spatial Setup with {len(self.locations_df)} locations.")
 
+        self.flu_season_start_date = flu_season_start_date
+
     def get_location_name(self, location_code):
         if pd.isna(location_code):
             return "NA"
         return self.locations_df[self.locations_df['location_code']==location_code]['location_name'].values[0]
 
     @classmethod
-    def from_flusight(cls, csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv"):
+    def from_flusight(cls, csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv", flu_season_start_date=pd.to_datetime("2020-12-15")):
         flusight_locations = pd.read_csv(csv_path)
         flusight_locations['geoid'] = flusight_locations['location']+'000'
         flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
         flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
         flusight_locations.drop(columns=['location'], inplace=True)
-        return cls(locations = flusight_locations)
+        return cls(locations = flusight_locations, flu_season_start_date=flu_season_start_date)
+
+    def get_fluseason_year(self, ts):
+        if ts.dayofyear >= self.flu_season_start_date.dayofyear:
+            return ts.year 
+        else:
+            return ts.year - 1
+
+    def get_fluseason_fraction(self, ts):
+        if ts.dayofyear >= self.flu_season_start_date.dayofyear:
+            return (ts.dayofyear - self.flu_season_start_date.dayofyear) / 365
+        else:
+            return ((ts.dayofyear + 365) - self.flu_season_start_date.dayofyear)  / 365
 
 
 def padto64x64(x: np.ndarray) -> np.ndarray:
     return np.pad(x, ((0, 64-x.shape[0]), (0, 64-x.shape[1])), mode='constant', constant_values=0)
 
+
 def dataframe_to_xarray(df: pd.DataFrame,
-          spatial_setup: SpatialSetup = None,
+          flusetup: FluSetup = None,
           xarray_name = 'data', 
           xarrax_features = 'value', 
           date_column = 'week_enddate', 
@@ -74,12 +75,12 @@ def dataframe_to_xarray(df: pd.DataFrame,
     if not isinstance(xarrax_features, list):
         xarrax_features = [xarrax_features]
     
-    if spatial_setup is None:
-        print("No spatial setup provided, using all locations in the dataframe.")
+    if flusetup is None:
+        print("No FluSetup provided, using all locations in the dataframe.")
         places = df_piv.columns.to_list()
     else:
-        df_piv = df_piv[spatial_setup['location_code']] # make sure order is right w.r.t flusight_locations
-        places = spatial_setup['location_code']
+        df_piv = df_piv[flusetup.locations_df['location_code']] # make sure order is right w.r.t flusight_locations
+        places = flusetup.locations_df['location_code']
 
     df_xarr = xr.DataArray(np.array([df_piv.to_numpy()]),
                 name = xarray_name,
@@ -111,7 +112,7 @@ def get_all_locations(dataset):
     return locations
 
 
-def get_from_epidata(dataset, spatial_setup=None, locations="all", value_col=None, write=True, download=True):
+def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_col=None, write=True, download=True):
     """ 
     Read a dataset from epidata. Each dataset is a dataframe with columns:
     - 'week_enddate' (datetime)
@@ -157,7 +158,7 @@ def get_from_epidata(dataset, spatial_setup=None, locations="all", value_col=Non
     if write:  # write before merge
         df.to_csv(f"datasets/{dataset}.csv", index=False)
     
-    if spatial_setup is not None:
+    if flusetup is not None:
         # merge with locations, taking care of new york
         if dataset == "flusurv": 
             df["location_tomerge"] = df["location"]
@@ -174,7 +175,7 @@ def get_from_epidata(dataset, spatial_setup=None, locations="all", value_col=Non
             df["location_tomerge"] = df["location"]
             right_on = "location_code"
 
-        df = pd.merge(df, spatial_setup.locations_df, left_on="location_tomerge", right_on=right_on, how='left')
+        df = pd.merge(df, flusetup.locations_df, left_on="location_tomerge", right_on=right_on, how='left')
         df.drop(columns=['location_tomerge'], inplace=True)
     
     if value_col is None:
@@ -188,8 +189,8 @@ def get_from_epidata(dataset, spatial_setup=None, locations="all", value_col=Non
     df["value"] = df[value_col]
 
     # get the flu season year and it's fraction elapsed
-    df["fluseason"]= df["week_enddate"].apply(get_fluseason_year)
-    df["fluseason_fraction"]= df["week_enddate"].apply(get_fluseason_fraction)
+    df["fluseason"]= df["week_enddate"].apply(flusetup.get_fluseason_year)
+    df["fluseason_fraction"]= df["week_enddate"].apply(flusetup.get_fluseason_fraction)
 
     return df
 
