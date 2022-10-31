@@ -184,7 +184,7 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
             df["location_tomerge"] = df["location_tomerge"].str.replace("ny_minus_jfk".upper(), "NY")    
             right_on = "abbreviation"
         elif dataset == "flusight":
-            print("/!\ Make sure ./update_data.sh is ran AND that the fork is updated")
+            print("⚠️ ⚠️ ⚠️ Make sure ./update_data.sh is ran AND that the fork is updated")
             df["location_tomerge"] = df["location"]
             right_on = "location_code"
 

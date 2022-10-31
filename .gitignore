@@ -2,6 +2,7 @@ datasets/delphi-epidata/
 datasets/Flusight-forecast-data/
 datasets/stanford_cars/
 datasets/synthetic/SMH_R1/
+datasets/synthetic/flu-scenario-modeling-hub/
 helpers/delphi_epidata.py
 referenceimplementations/
 
