@@ -27,12 +27,18 @@ class FluSetup():
         return self.locations_df[self.locations_df['location_code']==location_code]['location_name'].values[0]
 
     @classmethod
-    def from_flusight(cls, csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv", flu_season_start_date=pd.to_datetime("2020-12-15")):
+    def from_flusight(cls, 
+                      csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv", 
+                      flu_season_start_date=pd.to_datetime("2020-12-15"),
+                      remove_territories=False):
         flusight_locations = pd.read_csv(csv_path)
         flusight_locations['geoid'] = flusight_locations['location']+'000'
         flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
         flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
         flusight_locations.drop(columns=['location'], inplace=True)
+        if remove_territories:
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '72']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '78']
         return cls(locations = flusight_locations, flu_season_start_date=flu_season_start_date)
 
     def get_fluseason_year(self, ts):
