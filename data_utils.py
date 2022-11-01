@@ -1,3 +1,4 @@
+import datetime
 import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
@@ -7,7 +8,7 @@ import xarray as xr
 # locations, in the right order
 class FluSetup():
     """ Contains locations and season info"""
-    def __init__(self, locations:pd.DataFrame, flu_season_start_date=pd.to_datetime("2020-12-15")):
+    def __init__(self, locations:pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-12-15")):
         self.locations_df = locations
 
         assert "location_code" in self.locations_df.columns
@@ -19,17 +20,21 @@ class FluSetup():
         
         print(f"Spatial Setup with {len(self.locations_df)} locations.")
 
-        self.flu_season_start_date = flu_season_start_date
+        self.fluseason_startdate = fluseason_startdate
 
     def get_location_name(self, location_code):
         if pd.isna(location_code):
             return "NA"
         return self.locations_df[self.locations_df['location_code']==location_code]['location_name'].values[0]
+    
+    def get_dates(self, length=52):
+        dr = pd.date_range(start=self.fluseason_startdate, end=self.fluseason_startdate+datetime.timedelta(days=7*length), freq="W")
+        return dr
 
     @classmethod
     def from_flusight(cls, 
                       csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv", 
-                      flu_season_start_date=pd.to_datetime("2020-12-15"),
+                      fluseason_startdate=pd.to_datetime("2020-12-15"),
                       remove_territories=False):
         flusight_locations = pd.read_csv(csv_path)
         flusight_locations['geoid'] = flusight_locations['location']+'000'
@@ -39,19 +44,19 @@ class FluSetup():
         if remove_territories:
             flusight_locations = flusight_locations[flusight_locations['location_code'] != '72']
             flusight_locations = flusight_locations[flusight_locations['location_code'] != '78']
-        return cls(locations = flusight_locations, flu_season_start_date=flu_season_start_date)
+        return cls(locations = flusight_locations, fluseason_startdate=fluseason_startdate)
 
     def get_fluseason_year(self, ts):
-        if ts.dayofyear >= self.flu_season_start_date.dayofyear:
+        if ts.dayofyear >= self.fluseason_startdate.dayofyear:
             return ts.year 
         else:
             return ts.year - 1
 
     def get_fluseason_fraction(self, ts):
-        if ts.dayofyear >= self.flu_season_start_date.dayofyear:
-            return (ts.dayofyear - self.flu_season_start_date.dayofyear) / 365
+        if ts.dayofyear >= self.fluseason_startdate.dayofyear:
+            return (ts.dayofyear - self.fluseason_startdate.dayofyear) / 365
         else:
-            return ((ts.dayofyear + 365) - self.flu_season_start_date.dayofyear)  / 365
+            return ((ts.dayofyear + 365) - self.fluseason_startdate.dayofyear)  / 365
 
 
 def padto64x64(x: np.ndarray) -> np.ndarray:
