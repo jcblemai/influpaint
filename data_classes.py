@@ -21,7 +21,40 @@ class FluDataset(torch.utils.data.Dataset):
         print(f"created dataset with max {np.array(self.max_per_feature)}, full dataset has shape {self.flu_dyn.shape}")
 
     @classmethod
-    def from_csp_SMHR1(cls, netcdf_file, 
+    def from_SMHR1_fluview(cls,
+                    flusetup,
+                    download=False,
+                    transform=None, 
+                    transform_inv=None, 
+                    channels=3):
+        netcdf_file = 'datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc'
+        channels = 1
+        flu_dyn = xr.open_dataarray(netcdf_file)
+        if channels == 1:
+            flu_dyn = flu_dyn.sel(feature="incidH_FluA")+ flu_dyn.sel(feature="incidH_FluB")
+            flu_dyn = flu_dyn.expand_dims('feature', axis=1).assign_coords(feature=('feature', ['incidH']))
+        flu_dyn1 = flu_dyn.data
+
+        fluview = data_utils.get_from_epidata(dataset="fluview", flusetup=flusetup, download=download, write=False)
+        df = fluview[fluview['location_code'].isin(flusetup.locations)]
+        flu_dyn2 = np.array(data_utils.dataframe_to_arraylist(df=df, flusetup=flusetup))
+
+        flu_dyn2 = flu_dyn2.repeat(50, axis=0)
+        print(f"After repeat, fluview data has shape {flu_dyn2.shape} vs {flu_dyn1.shape} from csp")
+        flu_dyn = np.concatenate((flu_dyn1, flu_dyn2), axis=0)
+
+        rng = np.random.default_rng()
+
+        flu_dyn = rng.shuffle(arr=flu_dyn, axis=0)
+
+        return cls(flu_dyn=flu_dyn, transform=transform, transform_inv=transform_inv, channels=channels)
+
+
+
+
+    @classmethod
+    def from_csp_SMHR1(cls, 
+                    netcdf_file, 
                     transform=None, 
                     transform_inv=None,
                     channels=3):
@@ -129,3 +162,12 @@ def transform_shift(image, shift=-1):
 
 def transform_shift_inv(image, shift=-1):
     return image-shift
+
+def transform_rollintime(image, shift):
+    return np.roll(image, shift=shift, axis=1)
+
+def random_rollintime(image, max_shift):
+    import random
+    shift = random.randint(0, max_shift)
+    return transform_rollintime(image, shift)
+
