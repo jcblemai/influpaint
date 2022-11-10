@@ -45,7 +45,7 @@ class FluDataset(torch.utils.data.Dataset):
 
         rng = np.random.default_rng()
 
-        flu_dyn = rng.shuffle(arr=flu_dyn, axis=0)
+        rng.shuffle(flu_dyn, axis=0) # this is inplace
 
         return cls(flu_dyn=flu_dyn, transform=transform, transform_inv=transform_inv, channels=channels)
 
@@ -92,7 +92,7 @@ class FluDataset(torch.utils.data.Dataset):
         return cls(flu_dyn=flu_dyn, transform=transform, transform_inv=transform_inv, channels=channels)
 
 
-    def add_transform(self, transform, transform_inv):
+    def add_transform(self, transform, transform_inv, autotest=True):
         self.transform = transform
         self.transform_inv = transform_inv
         # test that the inverse transform really works
@@ -164,9 +164,12 @@ def transform_shift_inv(image, shift=-1):
     return image-shift
 
 def transform_rollintime(image, shift):
-    return np.roll(image, shift=shift, axis=1)
+    print(image.shape, shift)
+    r_val = np.roll(image, shift=shift, axis=1)
+    print((r_val == image).all())
+    return r_val
 
-def random_rollintime(image, max_shift):
+def transform_random_rollintime(image, max_shift):
     import random
     shift = random.randint(0, max_shift)
     return transform_rollintime(image, shift)
