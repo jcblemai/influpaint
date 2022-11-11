@@ -49,9 +49,6 @@ class FluDataset(torch.utils.data.Dataset):
 
         return cls(flu_dyn=flu_dyn, transform=transform, transform_inv=transform_inv, channels=channels)
 
-
-
-
     @classmethod
     def from_csp_SMHR1(cls, 
                     netcdf_file, 
@@ -166,11 +163,10 @@ def transform_shift_inv(image, shift=-1):
 
 def transform_rollintime(image, shift):
     r_val = np.roll(image, shift=shift, axis=1)
-    print((r_val == image).all())
     return r_val
 
-def transform_random_rollintime(image, max_shift):
+def transform_random_rollintime(image, min_shift, max_shift):
     import random
-    shift = random.randint(0, max_shift)
+    shift = random.randint(min_shift, max_shift)
     return transform_rollintime(image, shift)
 
