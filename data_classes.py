@@ -92,11 +92,12 @@ class FluDataset(torch.utils.data.Dataset):
         return cls(flu_dyn=flu_dyn, transform=transform, transform_inv=transform_inv, channels=channels)
 
 
-    def add_transform(self, transform, transform_inv, autotest=True):
+    def add_transform(self, transform, transform_inv, bypass_test=False):
         self.transform = transform
         self.transform_inv = transform_inv
-        # test that the inverse transform really works
-        self.test(0)
+        if not bypass_test:
+            # test that the inverse transform really works
+            self.test(0)
         
     def __len__(self):
         return self.flu_dyn.shape[0]
@@ -134,7 +135,7 @@ class FluDataset(torch.utils.data.Dataset):
         test that we can transform and go back & get the same thing
         """
         epi_frame_n = self.getitem_nocast(idx)
-        assert (np.abs(self.apply_transform_inv(epi_frame_n) - self.flu_dyn[idx]) < 1e5).all()
+        assert (np.abs(self.apply_transform_inv(epi_frame_n) - self.flu_dyn[idx]) < 1e-5).all()
         print("test passed: back and forth transformation are ok ✅")
 
 # These transform applies to a numpy object with dimensions
@@ -164,7 +165,6 @@ def transform_shift_inv(image, shift=-1):
     return image-shift
 
 def transform_rollintime(image, shift):
-    print(image.shape, shift)
     r_val = np.roll(image, shift=shift, axis=1)
     print((r_val == image).all())
     return r_val
