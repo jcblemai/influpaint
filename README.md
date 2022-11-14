@@ -50,9 +50,9 @@ Then launch a batch job to create a jupyter notebook server you can connect to (
 
 Launch a job for 18h:
 ```bash
-srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:1 --qos=gpu_access --output=out.out sh runjupyter.sh &
+srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:4 --qos=gpu_access --output=out.out sh runjupyter.sh &
 ```
-you will see
+where I request 4 GPUs here; you will see
 ```
 run: job 56345284 queued and waiting for resources
 ```
