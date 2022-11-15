@@ -170,3 +170,14 @@ def transform_random_rollintime(image, min_shift, max_shift):
     shift = random.randint(min_shift, max_shift)
     return transform_rollintime(image, shift)
 
+def transform_random_padintime(image, min_shift, max_shift, neutral_value=0):
+    import random
+    shift = random.randint(min_shift, max_shift)
+    r_val = transform_rollintime(image, shift)
+    if shift >= 0:
+        r_val[:,:shift] = neutral_value
+    else:
+        r_val[:,shift:] = neutral_value
+    
+    return r_val
+
