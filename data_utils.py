@@ -44,6 +44,9 @@ class FluSetup():
         if remove_territories:
             flusight_locations = flusight_locations[flusight_locations['location_code'] != '72']
             flusight_locations = flusight_locations[flusight_locations['location_code'] != '78']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '60']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '66']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '69']
         return cls(locations = flusight_locations, fluseason_startdate=fluseason_startdate)
 
     def get_fluseason_year(self, ts):
