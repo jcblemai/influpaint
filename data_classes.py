@@ -39,7 +39,7 @@ class FluDataset(torch.utils.data.Dataset):
         df = fluview[fluview['location_code'].isin(flusetup.locations)]
         flu_dyn2 = np.array(data_utils.dataframe_to_arraylist(df=df, flusetup=flusetup))
 
-        flu_dyn2 = flu_dyn2.repeat(50, axis=0)
+        flu_dyn2 = flu_dyn2.repeat(90, axis=0)
         print(f"After repeat, fluview data has shape {flu_dyn2.shape} vs {flu_dyn1.shape} from csp")
         flu_dyn = np.concatenate((flu_dyn1, flu_dyn2), axis=0)
 
