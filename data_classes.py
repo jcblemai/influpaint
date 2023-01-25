@@ -140,7 +140,7 @@ class FluDataset(torch.utils.data.Dataset):
 
 def transform_randomscale(image, max, min):
     import random
-    scale = random.uniform(min, max)
+    scale = random.uniform(min, max) # TODO should not be uniform !!!
     return image*scale
 
 def transform_channelwisescale(image, scale): # TODO write for three channel like it was above
