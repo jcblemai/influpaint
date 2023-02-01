@@ -181,3 +181,13 @@ def transform_random_padintime(image, min_shift, max_shift, neutral_value=0):
     
     return r_val
 
+def transform_randomnoise(image, sigma=0.2):
+    mu = 1
+    return image * np.random.normal(mu, sigma, image.shape)
+
+from scipy.stats import skewnorm
+
+def transform_skewednoise(image, scale=.4, a=-1):
+    r = skewnorm.rvs(loc=1, scale=scale, a = a, size=image.shape)
+    r[r<0] = 0
+    return image * r
