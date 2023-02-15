@@ -1,5 +1,7 @@
 # UNC_IDD InfluPainting
 
+2023-02-13: Before: more resampling steps gives smaller confidence interval, because more certainty in what matches the curve. Now that I added some random noise perturbation of the training set, more resampling steps gives larger confidence interval under certain conditions.
+
 ## Instruction
 ### Building the conda environment
 If on UNC HPC cluster longleaf, just ssh into longleaf longing node: `ssh chadi@longleaf.unc.edu`.
