@@ -1,5 +1,4 @@
 # Influpaint : Inpainting denoising diffusion probabilistic models for infectious disease (influenza) forecasting
-* **authors** Joseph Lemaitre, Justin Lessler
 * **affiliation** The University of North Carolina at Chapel Hill
 
 ## Introduction
