@@ -1,10 +1,9 @@
 # Influpaint : Inpainting denoising diffusion probabilistic models for infectious disease (influenza) forecasting
-* **authors** Joseph Lemaitre, Justin Lessler
 * **affiliation** The University of North Carolina at Chapel Hill
 
 ## Introduction
 
-Denoising Diffusion Probabilistic Models (DDPM) are generative models like generative adversarial networks, autoregressive models, and variational auto-encoder. While slow, they can generate Hight quality samples with good diversity. They work wonderfully well for image synthesis, see [openAI DALL-E 2](https://openai.com/dall-e-2/). These model has been described in [1] and [2].
+Denoising Diffusion Probabilistic Models (DDPM) are generative models like generative adversarial networks, autoregressive models, and variational auto-encoder. While slow, they can generate high quality samples with good diversity. They work wonderfully well for image synthesis, see [openAI DALL-E 2](https://openai.com/dall-e-2/). These model has been described in [1] and [2].
 
 Here we treat influenza epidemic curves as images (axes are time and location, a pixel value is e.g incident hospitalization), and we generate synthetic epidemic trajectories using “stock” DDPM algorithms.
 
