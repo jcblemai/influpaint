@@ -50,17 +50,23 @@ class FluSetup():
         return cls(locations = flusight_locations, fluseason_startdate=fluseason_startdate)
 
     def get_fluseason_year(self, ts):
-        if ts.dayofyear >= self.fluseason_startdate.dayofyear:
-            return ts.year 
-        else:
-            return ts.year - 1
+        return get_season_year(ts, self.fluseason_startdate)
 
     def get_fluseason_fraction(self, ts):
-        if ts.dayofyear >= self.fluseason_startdate.dayofyear:
-            return (ts.dayofyear - self.fluseason_startdate.dayofyear) / 365
-        else:
-            return ((ts.dayofyear + 365) - self.fluseason_startdate.dayofyear)  / 365
+        return get_season_fraction(ts, self.fluseason_startdate)
 
+def get_season_year(ts, start_date):
+    if ts.dayofyear >= start_date.dayofyear:
+        return ts.year 
+    else:
+        return ts.year - 1
+    
+def get_season_fraction(ts, start_date):
+    if ts.dayofyear >= start_date.dayofyear:
+        return (ts.dayofyear - start_date.dayofyear) / 365
+    else:
+        return ((ts.dayofyear + 365) - start_date.dayofyear)  / 365
+    
 
 def padto64x64(x: np.ndarray) -> np.ndarray:
     return np.pad(x, ((0, 64-x.shape[0]), (0, 64-x.shape[1])), mode='constant', constant_values=0)
@@ -137,6 +143,8 @@ def get_all_locations(dataset):
             for region_name, flloc in fll_dict[region_type].items():
                 locations.append(flloc)
     return locations
+
+
 
 
 def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_col=None, write=True, download=True):
