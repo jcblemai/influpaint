@@ -5,6 +5,67 @@ import xarray as xr
 import data_utils
 
 
+class WNVDataset(torch.utils.data.Dataset):
+    def __init__(self, flu_dyn, transform=None, transform_inv=None, channels=3):
+        """
+        Args:
+            flu_dyn (np.array): flu dynamics, shape (n_samples, n_features, n_dates, n_places)
+        """
+        self.transform = transform
+        self.transform_inv = transform_inv
+
+        self.flu_dyn = flu_dyn
+        self.max_per_feature = np.max(self.flu_dyn, axis=(0,2,3)) # TODO: Check with channels, also perhaps use keepdims=True for broadcasting
+
+        print(f"created dataset with max {np.array(self.max_per_feature)}, full dataset has shape {self.flu_dyn.shape}")
+
+    def add_transform(self, transform, transform_inv, bypass_test=False):
+        self.transform = transform
+        self.transform_inv = transform_inv
+        if not bypass_test:
+            # test that the inverse transform really works
+            self.test(0)
+        
+    def __len__(self):
+        return self.flu_dyn.shape[0]
+    
+    def __getitem__(self, idx):
+        frame = self.getitem_nocast(idx)
+        return torch.from_numpy(frame).float()
+    
+    def getitem_nocast(self, idx):
+        if torch.is_tensor(idx):
+            idxl = idx.tolist()
+        else:
+            idxl=idx
+        # should be squeezed when channel = 3 ?
+        epi_frame = self.flu_dyn[idxl,:,:,:]
+        epi_frame = self.apply_transform(epi_frame)
+        return epi_frame
+
+    def apply_transform(self, epi_frame):
+        if self.transform:
+            array = self.transform(epi_frame)
+            return array
+        else:
+            return epi_frame
+    
+    def apply_transform_inv(self, epi_frame):
+        if self.transform_inv:
+            array = self.transform_inv(epi_frame)
+            return array
+        else:
+            return epi_frame
+    
+    def test(self, idx):
+        """
+        test that we can transform and go back & get the same thing
+        """
+        epi_frame_n = self.getitem_nocast(idx)
+        assert (np.abs(self.apply_transform_inv(epi_frame_n) - self.flu_dyn[idx]) < 1e-5).all()
+        print("test passed: back and forth transformation are ok ✅")
+
+
 class FluDataset(torch.utils.data.Dataset):
     def __init__(self, flu_dyn, transform=None, transform_inv=None, channels=3):
         """
