@@ -1,19 +1,16 @@
-cd datasets/Flusight-forecast-data
+cd Flusight/Flusight-forecast-data
 echo " ⚠️ ⚠️ ⚠️  Make sure fork jcblemai/Flusight-forecast-data is synced cdcepi/Flusight-forecast-data !!!"
 git pull
 cd ../..
 
-cd datasets/delphi-epidata
-git pull
-cd ../..
-cp datasets/delphi-epidata/src/client/delphi_epidata.py helpers/
-
-cd datasets/synthetic/flu-scenario-modeling-hub/
+cd Flusight/flu-datasets/delphi-epidata
 git pull
 cd ../../..
+cp Flusight/flu-datasets/delphi-epidata/src/client/delphi_epidata.py helpers/
 
-cd "West-Nile Virus/cdc-forecasting-challenge"
+cd Flusight/flu-datasets/synthetic/flu-scenario-modeling-hub/
 git pull
-cd ../..
+cd ../../../..
 
-cd "West-Nile Virus/WNV-forecast-project-2023"
+cd wnv-forecasting
+./update-data.sh

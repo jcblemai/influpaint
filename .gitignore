@@ -1,11 +1,16 @@
-datasets/delphi-epidata/
-datasets/Flusight-forecast-data/
-datasets/stanford_cars/
-datasets/synthetic/SMH_R1/
-datasets/synthetic/flu-scenario-modeling-hub/
 helpers/delphi_epidata.py
 referenceimplementations/
-
+Flusight/FluSight Retrospective plots/
+Flusight/Flusight-forecast-data/
+Flusight/Flusight-submissions/
+Flusight/flu-datasets/delphi-epidata/
+Flusight/flu-datasets/gt_flusight_incidHosp.nc
+Flusight/flu-datasets/gt_flusight_incidHosp_padded.nc
+Flusight/flu-datasets/synthetic/SMH_R1/
+Flusight/flu-datasets/synthetic/flu-scenario-modeling-hub/
+memories/
+outreach/
+wnv-forecasting/
 
 
 
