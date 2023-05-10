@@ -33,7 +33,7 @@ class FluSetup():
 
     @classmethod
     def from_flusight(cls, 
-                      csv_path="datasets/Flusight-forecast-data/data-locations/locations.csv", 
+                      csv_path="Flusight/Flusight-forecast-data/data-locations/locations.csv", 
                       fluseason_startdate=pd.to_datetime("2020-12-15"),
                       remove_territories=False):
         flusight_locations = pd.read_csv(csv_path)
@@ -132,7 +132,7 @@ def dataframe_to_arraylist(df: pd.DataFrame,
 
 def get_all_locations(dataset):
     if dataset == "flusurv":
-        locations_fn = "datasets/delphi-epidata/labels/flusurv_locations.txt"
+        locations_fn = "Flusight/flu-datasets/delphi-epidata/labels/flusurv_locations.txt"
         locations = pd.read_csv(locations_fn, sep='\t', header=None, names=['location'])["location"].to_list()
     elif dataset=="fluview":
         import importlib  
@@ -181,9 +181,9 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
             df['week_enddate'] = df['epiweek'].astype(str).apply(lambda x: epiweeks.Week.fromstring(week_string=x, system="cdc").enddate())
 
         else:
-            df = pd.read_csv(f"datasets/{dataset}.csv")
+            df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
     elif dataset == "flusight":
-        df = pd.read_csv("datasets/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv", parse_dates=True, index_col='date')
+        df = pd.read_csv("Flusight/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv", parse_dates=True, index_col='date')
         df['week_enddate'] = df.index
     else:
         raise NotImplementedError(f"Dataset {dataset} not implemented")

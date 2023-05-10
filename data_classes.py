@@ -26,7 +26,7 @@ class FluDataset(torch.utils.data.Dataset):
                     transform=None, 
                     transform_inv=None, 
                     channels=3):
-        netcdf_file = 'datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc'
+        netcdf_file = 'Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc'
         channels = 1
         flu_dyn = xr.open_dataarray(netcdf_file)
         if channels == 1:
