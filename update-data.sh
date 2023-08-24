@@ -11,6 +11,3 @@ cp Flusight/flu-datasets/delphi-epidata/src/client/delphi_epidata.py helpers/
 cd Flusight/flu-datasets/synthetic/flu-scenario-modeling-hub/
 git pull
 cd ../../../..
-
-cd wnv-forecasting
-./update-data.sh
