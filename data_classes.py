@@ -67,7 +67,7 @@ class FluDataset(torch.utils.data.Dataset):
                     transform=None, 
                     transform_inv=None, 
                     channels=3):
-        csp_flusurv = pd.read_csv("datasets/flu_surv_cspGT.csv", parse_dates=["date"])
+        csp_flusurv = pd.read_csv("Flusight/flu-datasets/flu_surv_cspGT.csv", parse_dates=["date"])
         df = pd.merge(csp_flusurv, flusetup.locations_df, left_on="FIPS", right_on="abbreviation", how='left')
         df["fluseason"]= df["date"].apply(flusetup.get_fluseason_year)
         df["fluseason_fraction"]= df["date"].apply(flusetup.get_fluseason_fraction)

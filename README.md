@@ -111,17 +111,26 @@ and the following *Additional Job Submission Arguments*:
 
 Then go to to run diffusion once your job is allocated.
 
-### Running on a full compute node with Volta GUP
+### Running on a full compute node with Volta GUP or on UNC-IDD patron node
 For the first time only, create jupyter lab password:
 ```bash
 sh create_notebook_password.sh
 ```
 Then launch a batch job to create a jupyter notebook server you can connect to (here requests one volta-gpu for 18 hours)
 
-Launch a job for 18h:
+Launch a job for 18h on volta-gpu
 ```bash
 srun --ntasks=1 --cpus-per-task=4 --mem=32G --time=18:00:00 --partition=volta-gpu --gres=gpu:4 --qos=gpu_access --output=out.out sh runjupyter.sh &
 ```
+or on UNC-IDD patron node:
+```bash
+srun --ntasks=1 --time=18:00:00 -p jlessler --gres=gpu:1 --output=out.out sh runjupyter.sh &
+```
+UNC-IDD specs are:
+- 512GB ram
+- 56 physical CPU cores - can be 112 vCores if you decide to enable Hyperthreading
+- [Quantity 4 of Nvidia L40, 48GB](https://www.nvidia.com/en-us/data-center/l40/)
+
 where I request 4 GPUs here; you will see
 ```
 run: job 56345284 queued and waiting for resources
@@ -132,6 +141,8 @@ srun: job 56345284 has been allocated resources
 ```
 
 then `cat out.out` which shows the instructions to go and make the ssh tunnel to connect on jupyter lab.
+
+
 
 
 ## Run the diffusion

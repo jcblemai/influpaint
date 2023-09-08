@@ -191,7 +191,7 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
     df['week_enddate'] = pd.to_datetime(df['week_enddate'])
 
     if write:  # write before merge
-        df.to_csv(f"datasets/{dataset}.csv", index=False)
+        df.to_csv(f"Flusight/flu-datasets/{dataset}.csv", index=False)
     
     if flusetup is not None:
         # merge with locations, taking care of new york
