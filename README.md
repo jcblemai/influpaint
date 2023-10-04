@@ -157,6 +157,9 @@ git clone https://github.com/andreas128/RePaint.git referenceimplementations/ReP
 git clone https://github.com/openai/guided-diffusion.git referenceimplementations/guided-diffusion
 git clone https://github.com/jcblemai/Flusight-forecast-data.git Flusight/Flusight-forecast-data
 git clone https://github.com/cmu-delphi/delphi-epidata.git Flusight/flu-datasets/delphi-epidata
+
+# WIS by Adrian Lison
+git clone https://github.com/adrian-lison/interval-scoring.git interval_scoring
 ```
 then to update your repository, type:
 ```
