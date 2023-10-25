@@ -32,11 +32,29 @@ class FluSetup():
         return dr
 
     @classmethod
-    def from_flusight(cls, 
+    def from_flusight2022_23(cls, 
                       csv_path="Flusight/Flusight-forecast-data/data-locations/locations.csv", 
                       fluseason_startdate=pd.to_datetime("2020-12-15"),
                       remove_territories=False):
         flusight_locations = pd.read_csv(csv_path)
+        flusight_locations['geoid'] = flusight_locations['location']+'000'
+        flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
+        flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
+        flusight_locations.drop(columns=['location'], inplace=True)
+        if remove_territories:
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '72']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '78']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '60']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '66']
+            flusight_locations = flusight_locations[flusight_locations['location_code'] != '69']
+        return cls(locations = flusight_locations, fluseason_startdate=fluseason_startdate)
+    
+    @classmethod
+    def from_flusight2023_24(cls, 
+                      csv_path="Flusight/FluSight-forecast-hub/auxiliary-data/locations.csv", 
+                      fluseason_startdate=pd.to_datetime("2020-12-15"),
+                      remove_territories=False):
+        flusight_locations = pd.read_csv(csv_path, converters={"location": lambda x: str(x).strip()}, skipinitialspace=True)
         flusight_locations['geoid'] = flusight_locations['location']+'000'
         flusight_locations = flusight_locations.iloc[1:,:].reset_index(drop=True)  # skip first row, which is the US full
         flusight_locations['location_code'] = flusight_locations['location']       # "location" collides with datasets column name
@@ -182,8 +200,11 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
 
         else:
             df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
-    elif dataset == "flusight":
+    elif dataset == "flusight2022_23":
         df = pd.read_csv("Flusight/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv", parse_dates=True, index_col='date')
+        df['week_enddate'] = df.index
+    elif dataset == "flusight2023_24":
+        df = pd.read_csv("Flusight/FluSight-forecast-hub/target-data/target-hospital-admissions.csv", parse_dates=True, index_col='date')
         df['week_enddate'] = df.index
     else:
         raise NotImplementedError(f"Dataset {dataset} not implemented")
@@ -205,7 +226,7 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
             df["location_tomerge"] = df["location_tomerge"].str.replace("jfk".upper(), "NY")
             df["location_tomerge"] = df["location_tomerge"].str.replace("ny_minus_jfk".upper(), "NY")    
             right_on = "abbreviation"
-        elif dataset == "flusight":
+        elif "flusight" in dataset:
             print("⚠️ ⚠️ ⚠️ Make sure ./update_data.sh is ran AND that the fork is updated")
             df["location_tomerge"] = df["location"]
             right_on = "location_code"
@@ -214,7 +235,7 @@ def get_from_epidata(dataset, flusetup: FluSetup=None, locations="all", value_co
         df.drop(columns=['location_tomerge'], inplace=True)
     
     if value_col is None:
-        if dataset == "flusight":
+        if "flusight" in dataset:
             value_col = "value"
         elif dataset == "flusurv":
             value_col = "rate_overall"
