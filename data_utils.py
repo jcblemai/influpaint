@@ -2,7 +2,7 @@ import datetime
 import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
-import epiweeks
+#import epiweeks
 import xarray as xr
 
 # locations, in the right order
