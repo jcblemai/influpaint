@@ -22,28 +22,30 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import helpers
+import utils
 
 
 class REpaint:
-    def __init__(self, gt, gt_keep_mask):
+    def __init__(self, ddpm, gt, gt_keep_mask, resampling_steps=1):
+        self.ddpm=ddpm
         self.gt = gt
         self.gt_keep_mask = gt_keep_mask
+        self.resampling_steps = resampling_steps
 
     @torch.no_grad()
     def p_sample_paint(self, x, t, t_index):
         # timestep parameters
-        betas_t = helpers.extract(betas, t, x.shape)
-        sqrt_one_minus_alphas_cumprod_t = helpers.extract(
-            sqrt_one_minus_alphas_cumprod, t, x.shape
+        betas_t = utils.extract(self.ddpm.betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = utils.extract(
+            self.ddpm.sqrt_one_minus_alphas_cumprod, t, x.shape
         )
-        sqrt_recip_alphas_t = helpers.extract(sqrt_recip_alphas, t, x.shape)
+        sqrt_recip_alphas_t = utils.extract(self.ddpm.sqrt_recip_alphas, t, x.shape)
 
-        posterior_variance_t = helpers.extract(posterior_variance, t, x.shape)
+        posterior_variance_t = utils.extract(self.ddpm.posterior_variance, t, x.shape)
 
-        resampling_steps = 7  # was 50 before
+        
 
-        for u in range(resampling_steps):
+        for u in range(self.resampling_steps):
             # RePaint algorithm, line 4 and 6
             if t_index == 0:
                 epsilon = 0
@@ -54,33 +56,33 @@ class REpaint:
 
             # RePaint algorithm, line 5
             x_tminus1_known = (
-                1 / sqrt_recip_alphas_t * gt
+                1 / sqrt_recip_alphas_t * self.gt
                 + sqrt_one_minus_alphas_cumprod_t ** 2 * epsilon
             )
 
             # RePaint algorithm, line 4 and 7
             x_tminus1_unknow = (
                 sqrt_recip_alphas_t
-                * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
+                * (x - betas_t * self.ddpm.model(x, t) / sqrt_one_minus_alphas_cumprod_t)
                 + torch.sqrt(posterior_variance_t) * z
             )
 
-            x_tminus1 = x_tminus1_known * gt_keep_mask + x_tminus1_unknow * (
-                1 - gt_keep_mask
+            x_tminus1 = x_tminus1_known * self.gt_keep_mask + x_tminus1_unknow * (
+                1 - self.gt_keep_mask
             ) * 1 / torch.sqrt(1 - posterior_variance_t)
 
             # TODO This is used for debug: return the full infered dynamics.
             if t_index == 0:
                 x_tminus1 = x_tminus1_unknow * 1 / torch.sqrt(1 - posterior_variance_t)
 
-            if u < resampling_steps - 1 and (t > 1).all():
+            if u < self.resampling_steps - 1 and (t > 1).all():
                 # taken from q_sample:
                 noise = torch.randn_like(x)
-                sqrt_alphas_cumprod_t = helpers.extract(
-                    self.sqrt_alphas_cumprod, t - 1, x.shape
+                sqrt_alphas_cumprod_t = utils.extract(
+                    self.ddpm.sqrt_alphas_cumprod, t - 1, x.shape
                 )
-                sqrt_one_minus_alphas_cumprod_t = helpers.extract(
-                    self.sqrt_one_minus_alphas_cumprod, t - 1, x.shape
+                sqrt_one_minus_alphas_cumprod_t = utils.extract(
+                    self.ddpm.sqrt_one_minus_alphas_cumprod, t - 1, x.shape
                 )
                 x = (
                     sqrt_alphas_cumprod_t * x_tminus1
@@ -91,7 +93,7 @@ class REpaint:
 
     @torch.no_grad()
     def p_sample_loop_paint(self, shape):
-        device = next(self.model.parameters()).device
+        device = next(self.ddpm.model.parameters()).device
 
         b = shape[0]
         # start from pure noise (for each example in the batch)
@@ -118,12 +120,11 @@ class REpaint:
         # for i in tqdm(ts, desc='sampling loop time step', total=self.timesteps):
 
         for i in tqdm(
-            reversed(range(0, self.timesteps)),
+            reversed(range(0, self.ddpm.timesteps)),
             desc="sampling loop time step",
-            total=self.timesteps,
+            total=self.ddpm.timesteps,
         ):
             img = self.p_sample_paint(
-                model=self.model,
                 x=img,
                 t=torch.full(
                     (b,), i, device=device, dtype=torch.long
@@ -136,6 +137,5 @@ class REpaint:
     @torch.no_grad()
     def sample_paint(self):
         return self.p_sample_loop_paint(
-            self.model,
-            shape=(self.batch_size, self.channels, self.image_size, self.image_size),
+            shape=(self.ddpm.batch_size, self.ddpm.channels, self.ddpm.image_size, self.ddpm.image_size),
         )

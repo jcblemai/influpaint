@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import helpers
+import utils
 
 
 def plot_to_ax(array, ax=None, place=None, multi=False, channels=1):
@@ -44,5 +44,5 @@ def plot_to_ax(array, ax=None, place=None, multi=False, channels=1):
             ax.plot(array_to_plot[k], c=c[k], lw=2, alpha=1)
 
 
-def show_tensor_image(image, ax=None, place=None, multi=False):
-    plot_to_ax(data.apply_transform_inv(image), ax=ax, place=place, multi=multi)
+def show_tensor_image(inv_transd_image, ax=None, place=None, multi=False):
+    plot_to_ax(inv_transd_image, ax=ax, place=place, multi=multi)

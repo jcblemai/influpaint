@@ -22,18 +22,24 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import helpers
+import utils
 
 
 class DDPM:
-    def __init__(self, model) -> None:
-        self.image_size = 64
-        self.channels = 1
-        self.batch_size = 256 * max(1, torch.cuda.device_count())
+    def __init__(self, model, image_size=64, channels=1, batch_size=512, epochs=500,  timesteps=200, loss_type="huber", device=None) -> None:
+        self.model = model
+        self.image_size = image_size
+        self.channels = channels
+        self.batch_size = batch_size # 256 * max(1, torch.cuda.device_count())
 
-        self.epochs = 300
+        self.epochs = epochs
 
-        self.timesteps = 200
+        self.timesteps = timesteps
+        self.loss_type=loss_type
+
+        self.device = device
+        if self.device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # define beta schedule
         self.betas = linear_beta_schedule(timesteps=self.timesteps)
@@ -59,7 +65,9 @@ class DDPM:
         self.results_folder.mkdir(exist_ok=True)
         self.save_and_sample_every = 1000
 
-        self.model = model
+
+
+        
         self.optimizer = Adam(self.model.parameters(), lr=1e-3)
 
     def q_sample(self, x_start, t, noise=None):
@@ -67,10 +75,10 @@ class DDPM:
         if noise is None:
             noise = torch.randn_like(x_start)
 
-        sqrt_alphas_cumprod_t = helpers.extract(
+        sqrt_alphas_cumprod_t = utils.extract(
             self.sqrt_alphas_cumprod, t, x_start.shape
         )
-        sqrt_one_minus_alphas_cumprod_t = helpers.extract(
+        sqrt_one_minus_alphas_cumprod_t = utils.extract(
             self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
         )
 
@@ -78,11 +86,11 @@ class DDPM:
 
     @torch.no_grad()
     def p_sample(self, x, t, t_index):
-        betas_t = helpers.extract(self.betas, t, x.shape)
-        sqrt_one_minus_alphas_cumprod_t = helpers.extract(
+        betas_t = utils.extract(self.betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = utils.extract(
             self.sqrt_one_minus_alphas_cumprod, t, x.shape
         )
-        sqrt_recip_alphas_t = helpers.extract(self.sqrt_recip_alphas, t, x.shape)
+        sqrt_recip_alphas_t = utils.extract(self.sqrt_recip_alphas, t, x.shape)
 
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
@@ -93,7 +101,7 @@ class DDPM:
         if t_index == 0:
             return model_mean
         else:
-            posterior_variance_t = helpers.extract(self.posterior_variance, t, x.shape)
+            posterior_variance_t = utils.extract(self.posterior_variance, t, x.shape)
             noise = torch.randn_like(x)
             # Algorithm 2 line 4:
             return model_mean + torch.sqrt(posterior_variance_t) * noise
@@ -114,7 +122,7 @@ class DDPM:
             total=self.timesteps,
         ):
             img = self.p_sample(
-                self.model, img, torch.full((b,), i, device=device, dtype=torch.long), i
+                img, torch.full((b,), i, device=device, dtype=torch.long), i
             )
             imgs.append(img.cpu().numpy())
         return imgs
@@ -122,21 +130,19 @@ class DDPM:
     @torch.no_grad()
     def sample(self):
         return self.p_sample_loop(
-            self.model,
             shape=(self.batch_size, self.channels, self.image_size, self.image_size),
         )
 
     def train(self, dataloader):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"/!\ training on {device}")
+        print(f"/!\ training on {self.device}")
         if torch.cuda.device_count() > 1:
             print(" -- using dataparallel")
-            model = nn.DataParallel(model)
+            self.model = nn.DataParallel(self.model)
 
-        model.to(device)
+        self.model.to(self.device)
 
-        if device == "cuda":
-            print(helpers.cuda_mem_info())
+        if self.device == "cuda":
+            print(utils.cuda_mem_info())
 
         scheduler1 = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.99)
 
@@ -147,23 +153,23 @@ class DDPM:
                 self.optimizer.zero_grad()
 
                 # self.batch_size = batch["pixel_values"].shape[0]
-                # batch = batch["pixel_values"].to(device)
+                # batch = batch["pixel_values"].to(self.device)
                 self.batch_size = batch.shape[0]
-                batch = batch.to(device)
+                batch = batch.to(self.device)
 
                 # Algorithm 1 line 3: sample t uniformally for every example in the batch
                 # Important to have a number of epoch sufficiently large to see all the self.timesteps
                 t = torch.randint(
-                    0, self.timesteps, (self.batch_size,), device=device
+                    0, self.timesteps, (self.batch_size,), device=self.device
                 ).long()
 
-                loss = p_losses(
-                    denoise_model=model, x_start=batch, t=t, loss_type="huber"
+                loss = self.p_losses(
+                    denoise_model=self.model, x_start=batch, t=t, loss_type=self.loss_type
                 )  # loss_type="l2")#
 
                 if step % 100 == 0:
                     print(f"Epoch: {epoch:<4} -- Loss: {loss.item()}")
-                # if device == "cuda":
+                # if self.device == "cuda":
                 #    print(f"   -- {helpers.cuda_mem_info()}")
                 loss.backward()
                 self.optimizer.step()
@@ -181,13 +187,13 @@ class DDPM:
                     plt.show()
 
                 # save generated images
-                if step != 0 and step % save_and_sample_every == 0:
-                    milestone = step // save_and_sample_every
-                    batches = num_to_groups(4, self.batch_size)
+                if step != 0 and step % self.save_and_sample_every == 0:
+                    milestone = step // self.save_and_sample_every
+                    batches = utils.num_to_groups(4, self.batch_size)
                     all_images_list = list(
                         map(
                             lambda n: self.sample(
-                                model, batch_size=n, channels=self.channels
+                                self.model, batch_size=n, channels=self.channels
                             ),
                             batches,
                         )
@@ -196,7 +202,7 @@ class DDPM:
                     all_images = (all_images + 1) * 0.5
                     save_image(
                         all_images,
-                        str(results_folder / f"sample-{milestone}.png"),
+                        str(self.results_folder / f"sample-{milestone}.png"),
                         nrow=6,
                     )
 
