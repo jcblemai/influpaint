@@ -6,13 +6,17 @@ import data_utils
 
 
 class FluDataset(torch.utils.data.Dataset):
-    def __init__(self, flu_dyn, transform=None, transform_inv=None, channels=3):
+    """
+    transform_enrich are for enriching the dataset and are not inverted (thus most have a mean effect of zero).
+    """
+    def __init__(self, flu_dyn, transform=None, transform_enrich=None, transform_inv=None, channels=3):
         """
         Args:
             flu_dyn (np.array): flu dynamics, shape (n_samples, n_features, n_dates, n_places)
         """
         self.transform = transform
         self.transform_inv = transform_inv
+        self.transform_enrich = transform_enrich
 
         self.flu_dyn = flu_dyn
         #  self.max_per_feature = self.flu_dyn.max(dim=["date", "place", "sample"])
@@ -128,9 +132,10 @@ class FluDataset(torch.utils.data.Dataset):
             channels=channels,
         )
 
-    def add_transform(self, transform, transform_inv, bypass_test=False):
+    def add_transform(self, transform, transform_inv, transform_enrich, bypass_test=False):
         self.transform = transform
         self.transform_inv = transform_inv
+        self.transform_enrich = transform_enrich
         if not bypass_test:
             # test that the inverse transform really works
             self.test(0)
@@ -139,22 +144,34 @@ class FluDataset(torch.utils.data.Dataset):
         return self.flu_dyn.shape[0]
 
     def __getitem__(self, idx):
-        frame = self.getitem_nocast(idx)
+        frame = self.get_sample_transformed_enriched(idx=idx)
         return torch.from_numpy(frame).float()
-
-    def getitem_nocast(self, idx):
+    
+    def get_sample_raw(self, idx):
         if torch.is_tensor(idx):
             idxl = idx.tolist()
         else:
             idxl = idx
         # should be squeezed when channel = 3 ?
         epi_frame = self.flu_dyn[idxl, :, :, :]
-        epi_frame = self.apply_transform(epi_frame)
         return epi_frame
-
+    
+    def get_sample_transformed(self, idx):
+        return self.apply_transform(self.get_sample_raw(idx))
+    
+    def get_sample_transformed_enriched(self, idx):
+        return self.apply_transform(self.apply_enrich(self.get_sample_raw(idx)))
+    
     def apply_transform(self, epi_frame):
         if self.transform:
             array = self.transform(epi_frame)
+            return array
+        else:
+            return epi_frame
+        
+    def apply_enrich(self, epi_frame):
+        if self.transform_enrich:
+            array = self.transform_enrich(epi_frame)
             return array
         else:
             return epi_frame
@@ -170,7 +187,7 @@ class FluDataset(torch.utils.data.Dataset):
         """
         test that we can transform and go back & get the same thing
         """
-        epi_frame_n = self.getitem_nocast(idx)
+        epi_frame_n = self.get_sample_transformed(idx)
         assert (
             np.abs(self.apply_transform_inv(epi_frame_n) - self.flu_dyn[idx]) < 1e-5
         ).all()
@@ -251,3 +268,6 @@ def transform_skewednoise(image, scale=0.4, a=-1):
     r = skewnorm.rvs(loc=1, scale=scale, a=a, size=image.shape)
     r[r < 0] = 0
     return image * r
+
+def transform_poisson(image):
+    return np.random.poisson(image)

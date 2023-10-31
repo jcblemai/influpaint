@@ -20,6 +20,9 @@ from torchvision import transforms
 import datetime
 
 
+flusight_quantiles = np.append(np.append([0.01,0.025],np.arange(0.05,0.95+0.05,0.050)), [0.975,0.99])
+flusight_quantile_pairs = np.array([flusight_quantiles[:11],flusight_quantiles[12:][::-1]]).T
+
 def num_to_groups(num, divisor):
     groups = num // divisor
     remainder = num % divisor
