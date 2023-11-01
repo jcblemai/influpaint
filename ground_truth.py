@@ -17,7 +17,7 @@ import utils, data_utils
 
 
 class GroundTruth():
-    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False):
+    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64):
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
@@ -60,7 +60,18 @@ class GroundTruth():
         self.gt_final_xarr = data_utils.dataframe_to_xarray(self.gt_df_final, flusetup=self.flusetup, 
             xarray_name = "gt_flusight_incidHos_final", 
             xarrax_features = "incidHosp")
+
+        # perturb the masking:
+        l = [d.astype('datetime64[D]').view('int64').astype('datetime64[D]').tolist() for d in self.gt_xarr.coords['date'].to_numpy()]
+        for i, d in enumerate(l):
+            if d is not None and d < self.mask_date.date():
+                self.inpaintfrom_idx = i + 1
+
+        self.gt_keep_mask = np.ones((channels,image_size,image_size))
+        self.gt_keep_mask[:,self.inpaintfrom_idx:,:] = 0
         
+        print(f"Masking, >> {self.inpaintfrom_idx} weeks already in data, inpainting the next ones")
+
     
     def git_checkout_data_rev(self, target_date=None):
         import pygit2
@@ -119,29 +130,17 @@ class GroundTruth():
 
     def plot_mask(self):
         # check that it stitch
-        fig, axes = plt.subplots(1, 3, figsize=(6,6), dpi=200, sharex=True, sharey=True)
-        axes[1].imshow(gt_keep_mask[0], alpha=.3, cmap = "rainbow")
-        axes[0].imshow(gt[0], cmap='Greys')
+        fig, axes = plt.subplots(1, 4, figsize=(6,6), dpi=200, sharex=True, sharey=True)
+        axes[1].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[0].imshow(self.gt_xarr.data[0], cmap='Greys')
 
 
-        axes[2].imshow(gt[0], cmap='Greys')
-        axes[2].imshow(gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[2].imshow(self.gt_xarr.data[0], cmap='Greys')
+        axes[2].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
 
-    def mask(self, channels ,image_size, idx=None, date=None):
-        if idx is None and date is None:
-            self.inpaintfrom_idx = len(self.gt_df.week_enddate.unique())
-            how += "(from futur)"
-        elif idx is not None:
-            self.inpaintfrom_idx = idx
-            how += "(from provided idx)"
-        elif date is not None:
-            raise ValueError("TODO")
-        
-
-        self.gt_keep_mask = np.ones((channels,image_size,image_size))
-        self.gt_keep_mask[:,self.inpaintfrom_idx:,:] = 0
-        
-        print(f"Masking, >> {self.inpaintfrom_idx} ({how}) weeks already in data, inpainting the next ones")
+        axes[3].imshow(self.gt_final_xarr.data[0], cmap='Greys')
+        axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[3].set_title("Final data")
 
     def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None):
         forecast_date_str=str(forecast_date)

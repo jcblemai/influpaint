@@ -139,3 +139,24 @@ class REpaint:
         return self.p_sample_loop_paint(
             shape=(self.ddpm.batch_size, self.ddpm.channels, self.ddpm.image_size, self.ddpm.image_size),
         )
+
+
+# schedule with J
+# t_T = ddpm1.timesteps
+# jump_len = 5 
+# jump_n_sample = 5 
+# jumps = {} 
+# for j in range(0, t_T - jump_len, jump_len): 
+#   jumps[j] = jump_n_sample - 1 
+# t = t_T 
+# ts = []
+# while t >= 1: 
+#   t = t-1
+#   ts.append(t) 
+#   if jumps.get(t, 0) > 0: 
+#    jumps[t] = jumps[t] - 1 
+#    for _ in range(jump_len): 
+#      t=t+1 
+#      ts.append(t)
+# ts.append(-1)
+# plt.plot(ts) 
