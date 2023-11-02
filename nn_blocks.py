@@ -359,7 +359,7 @@ class Unet(nn.Module):
             block_klass(dim, dim), nn.Conv2d(dim, out_dim, 1)
         )
 
-    def forward(self, x, time):
+    def forward(self, x, time, **kwargs):
         x = self.init_conv(x)
 
         t = self.time_mlp(time) if exists(self.time_mlp) else None

@@ -130,17 +130,22 @@ class GroundTruth():
 
     def plot_mask(self):
         # check that it stitch
-        fig, axes = plt.subplots(1, 4, figsize=(6,6), dpi=200, sharex=True, sharey=True)
-        axes[1].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        fig, axes = plt.subplots(1, 4, figsize=(8,8), dpi=200, sharex=True, sharey=True)
         axes[0].imshow(self.gt_xarr.data[0], cmap='Greys')
+        axes[0].set_title("Current data rev", fontsize=8)
+
+        axes[1].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[1].set_title("Inpainting mask", fontsize=8)
+        
 
 
         axes[2].imshow(self.gt_xarr.data[0], cmap='Greys')
         axes[2].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[3].set_title("Current data rev", fontsize=8)
 
         axes[3].imshow(self.gt_final_xarr.data[0], cmap='Greys')
         axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
-        axes[3].set_title("Final data")
+        axes[3].set_title("Final data", fontsize=8)
 
     def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None):
         forecast_date_str=str(forecast_date)
