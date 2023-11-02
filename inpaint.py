@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import utils
+import myutils
 
 
 class REpaint:
@@ -35,13 +35,13 @@ class REpaint:
     @torch.no_grad()
     def p_sample_paint(self, x, t, t_index):
         # timestep parameters
-        betas_t = utils.extract(self.ddpm.betas, t, x.shape)
-        sqrt_one_minus_alphas_cumprod_t = utils.extract(
+        betas_t = myutils.extract(self.ddpm.betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = myutils.extract(
             self.ddpm.sqrt_one_minus_alphas_cumprod, t, x.shape
         )
-        sqrt_recip_alphas_t = utils.extract(self.ddpm.sqrt_recip_alphas, t, x.shape)
+        sqrt_recip_alphas_t = myutils.extract(self.ddpm.sqrt_recip_alphas, t, x.shape)
 
-        posterior_variance_t = utils.extract(self.ddpm.posterior_variance, t, x.shape)
+        posterior_variance_t = myutils.extract(self.ddpm.posterior_variance, t, x.shape)
 
         for u in range(self.resampling_steps):
             # RePaint algorithm, line 4 and 6
@@ -76,10 +76,10 @@ class REpaint:
             if u < self.resampling_steps - 1 and (t > 1).all():
                 # taken from q_sample:
                 noise = torch.randn_like(x)
-                sqrt_alphas_cumprod_t = utils.extract(
+                sqrt_alphas_cumprod_t = myutils.extract(
                     self.ddpm.sqrt_alphas_cumprod, t - 1, x.shape
                 )
-                sqrt_one_minus_alphas_cumprod_t = utils.extract(
+                sqrt_one_minus_alphas_cumprod_t = myutils.extract(
                     self.ddpm.sqrt_one_minus_alphas_cumprod, t - 1, x.shape
                 )
                 x = (

@@ -13,7 +13,7 @@ import xarray as xr
 
 import datetime
 
-import utils, data_utils
+import myutils, data_utils
 
 
 class GroundTruth():
@@ -156,7 +156,7 @@ class GroundTruth():
         print(target_dates)
         #pd.DataFrame(colums=["forecast_date","target_end_date","location","type","quantile","value","target"])
         df_list=[]
-        for qt in utils.flusight_quantiles:
+        for qt in myutils.flusight_quantiles:
             a =  pd.DataFrame(np.quantile(fluforecasts_ti[:,:,:,:len(self.flusetup.locations)], qt, axis=0)[0], 
                     columns= self.flusetup.locations, index=pd.date_range(self.flusetup.fluseason_startdate, self.flusetup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
             #a["US"] = a.sum(axis=1)

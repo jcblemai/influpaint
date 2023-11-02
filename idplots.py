@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import utils
+import myutils
 
 
 def plot_to_ax(array, ax=None, place=None, multi=False, channels=1):

@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import utils
+import myutils
 
 
 class DDPM:
@@ -75,10 +75,10 @@ class DDPM:
         if noise is None:
             noise = torch.randn_like(x_start)
 
-        sqrt_alphas_cumprod_t = utils.extract(
+        sqrt_alphas_cumprod_t = myutils.extract(
             self.sqrt_alphas_cumprod, t, x_start.shape
         )
-        sqrt_one_minus_alphas_cumprod_t = utils.extract(
+        sqrt_one_minus_alphas_cumprod_t = myutils.extract(
             self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
         )
 
@@ -86,11 +86,11 @@ class DDPM:
 
     @torch.no_grad()
     def p_sample(self, x, t, t_index):
-        betas_t = utils.extract(self.betas, t, x.shape)
-        sqrt_one_minus_alphas_cumprod_t = utils.extract(
+        betas_t = myutils.extract(self.betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = myutils.extract(
             self.sqrt_one_minus_alphas_cumprod, t, x.shape
         )
-        sqrt_recip_alphas_t = utils.extract(self.sqrt_recip_alphas, t, x.shape)
+        sqrt_recip_alphas_t = myutils.extract(self.sqrt_recip_alphas, t, x.shape)
 
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
@@ -101,7 +101,7 @@ class DDPM:
         if t_index == 0:
             return model_mean
         else:
-            posterior_variance_t = utils.extract(self.posterior_variance, t, x.shape)
+            posterior_variance_t = myutils.extract(self.posterior_variance, t, x.shape)
             noise = torch.randn_like(x)
             # Algorithm 2 line 4:
             return model_mean + torch.sqrt(posterior_variance_t) * noise
@@ -142,7 +142,7 @@ class DDPM:
         self.model.to(self.device)
 
         if self.device == "cuda":
-            print(utils.cuda_mem_info())
+            print(myutils.cuda_mem_info())
 
         scheduler1 = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.99)
 
@@ -189,7 +189,7 @@ class DDPM:
                 # save generated images
                 if step != 0 and step % self.save_and_sample_every == 0:
                     milestone = step // self.save_and_sample_every
-                    batches = utils.num_to_groups(4, self.batch_size)
+                    batches = myutils.num_to_groups(4, self.batch_size)
                     all_images_list = list(
                         map(
                             lambda n: self.sample(
