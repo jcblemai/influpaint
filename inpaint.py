@@ -43,8 +43,6 @@ class REpaint:
 
         posterior_variance_t = utils.extract(self.ddpm.posterior_variance, t, x.shape)
 
-        
-
         for u in range(self.resampling_steps):
             # RePaint algorithm, line 4 and 6
             if t_index == 0:
