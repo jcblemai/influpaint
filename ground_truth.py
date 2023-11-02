@@ -147,7 +147,7 @@ class GroundTruth():
         axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
         axes[3].set_title("Final data", fontsize=8)
 
-    def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None):
+    def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True):
         forecast_date_str=str(forecast_date)
         if forecast_date == None:
             forecast_date = self.mask_date
@@ -207,4 +207,127 @@ class GroundTruth():
                 old_vals = new_vals
 
         df.to_csv(f"{directory}/{prefix}-{forecast_date_str}.csv", index=False)
+
+        if save_plot:
+            self.plot_forecasts(fluforecasts_ti, forecasts_national, directory=directory, prefix=prefix, forecast_date=forecast_date)
         
+    def plot_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None):
+        forecast_date_str=str(forecast_date)
+        if forecast_date == None:
+            forecast_date = self.mask_date
+        idx_now = self.inpaintfrom_idx-1
+        idx_horizon = idx_now+4
+
+        plot_specs = {"all" : {
+                                "quantiles_idx":range(11),
+                                "color":"lightcoral",
+                                },
+                        "50-95" : {
+                                "quantiles_idx":[1, 6],
+                                "color":"darkblue"
+                                }
+                    }
+
+        color_gt = "black"
+
+        nplace_toplot = 51
+        #nplace_toplot = 3 # less plots for faster iteration
+        plot_past_median = False
+        if plot_past_median:
+            plotrange=slice(None)
+        else:
+            plotrange=slice(self.inpaintfrom_idx,-1)
+
+        for plot_title, plot_spec in plot_specs.items():
+            #print(f"doing {plot_title}...")
+            fig, axes = plt.subplots(nplace_toplot+1, 2, figsize=(10,nplace_toplot*3.5), dpi=200)
+            for iax in range(2):
+                ax = axes[0][iax]
+    
+                x = np.arange(64)
+                if iax == 0:
+                    x_lims = (0, 52)
+                elif iax == 1:
+                    x_lims = (idx_now-3, idx_horizon)
+    
+                # US WIDE: quantiles and median, US-wide
+                for iqt in plot_spec["quantiles_idx"]:
+                    #print(f"up: {flusight_quantile_pairs[iqt,0]} - lo: {flusight_quantile_pairs[iqt,1]}")
+                    # TODO: not exactly true that it is the sum of quantiles (sum of quantile is not quantile of sum)
+                    ylo = np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
+                    yup = np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
+                    ax.fill_between(x[plotrange], 
+                                    ylo[plotrange], 
+                                    yup[plotrange], 
+                                    alpha=.1, 
+                                    color=plot_spec["color"])
+    
+                    # widest quantile pair is the first one. We take the up quantile of it + a few % as x_lim
+                    if iqt == plot_spec["quantiles_idx"][0]:
+                        if plot_past_median:
+                            max_y_value = max(yup[x_lims[0]:x_lims[1]])
+                        else:
+                            max_y_value = max(yup[self.inpaintfrom_idx:x_lims[1]])
+                        max_y_value = max(max_y_value, self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1)[x_lims[0]:x_lims[1]].max())
+                        max_y_value = max_y_value + max_y_value*.05 # 10% more
+    
+                # median
+                ax.plot(x[plotrange], np.quantile(forecasts_national, myutils.flusight_quantiles[12], axis=0)[0][plotrange], color=plot_spec["color"], marker='.', label='forecast median')
+    
+                # ground truth
+                ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1), color=color_gt, marker = '.', lw=.5, label='ground-truth')
+                if iax==0:
+                    ax.legend(fontsize=8)
+    
+                #ax.set_xticks(np.arange(0,53,13))
+
+
+            ax.set_xlim(x_lims)
+            ax.set_ylim(bottom=0, top=max_y_value)
+            ax.axvline(idx_now, c='k', lw=1, ls='-.')
+            if iax == 0:
+                ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
+            ax.set_title("National")
+
+            sns.despine(ax = ax, trim = True, offset=4)
+
+            # INDIVDIDUAL STATES: quantiles, median and ground-truth
+            max_y_value = np.zeros(52)
+            for iqt in plot_spec["quantiles_idx"]:
+                yup = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
+                ylo = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
+
+                # widest quantile pair is the first one. We take the up quantile of it + a few % as x_lim
+                if iqt == plot_spec["quantiles_idx"][0]:
+                    for ipl in range(nplace_toplot):
+                        if plot_past_median:
+                            max_y_value[ipl] = max(ylo[x_lims[0]:x_lims[1], ipl])
+                        else:
+                            max_y_value[ipl] = max(ylo[self.inpaintfrom_idx:x_lims[1], ipl])
+                        #max_y_value[ipl] =  max(ylo[x_lims[:x_lims[1], ipl])
+                        max_y_value[ipl] = max(max_y_value[ipl], self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl][x_lims[0]:x_lims[1]].max())
+                        max_y_value[ipl] = max_y_value[ipl] + max_y_value[ipl]*.05 # 10% more for the y_max value
+
+                for ipl in range(nplace_toplot):
+                    ax = axes[ipl+1][iax]
+                    ax.fill_between((x)[plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
+
+            # median line and ground truth for states
+            for ipl in range(nplace_toplot):   
+                ax = axes[ipl+1][iax]
+                # median
+                ax.plot(np.arange(64)[plotrange],
+                        np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
+                # ground truth
+                ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+
+                ax.axvline(idx_now, c='k', lw=1, ls='-.')
+                if iax == 0:
+                    ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
+                ax.set_xlim(x_lims)
+                ax.set_ylim(bottom=0, top=max_y_value[ipl])
+                if iax==0: ax.set_ylabel("New Hosp. Admissions")
+                ax.set_title(self.flusetup.get_location_name(self.flusetup.locations[ipl]))
+                sns.despine(ax = ax, trim = True, offset=4)
+        fig.tight_layout()
+        plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
