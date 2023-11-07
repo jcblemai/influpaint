@@ -4,7 +4,7 @@
 #SBATCH -p jlessler
 #SBATCH --mem=64G
 #SBATCH -t 00-01:00:00
-#SBATCH --array=0-32
+#SBATCH --array=8-11
 #SBATCH --gres=gpu:1
 
 # 1 node (N) 1 task (n) to the general partition  for 7days, with this task needing 6 cpus

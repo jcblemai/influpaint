@@ -330,5 +330,5 @@ class GroundTruth():
                 if iax==0: ax.set_ylabel("New Hosp. Admissions")
                 ax.set_title(self.flusetup.get_location_name(self.flusetup.locations[ipl]))
                 sns.despine(ax = ax, trim = True, offset=4)
-        fig.tight_layout()
-        plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
+            fig.tight_layout()
+            plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")

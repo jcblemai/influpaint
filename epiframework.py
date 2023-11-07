@@ -6,6 +6,78 @@ import pandas as pd
 import data_utils, data_classes
 import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth
 
+import sys
+sys.path.append('CoPaint4influpaint')
+from guided_diffusion import O_DDIMSampler
+from guided_diffusion import unet
+from utils import config
+
+
+def copaint_config_library(timesteps):
+    config_lib = {
+        "celebahq":config.Config(default_config_dict={
+                            "respace_interpolate": False,
+                                "ddim": {
+                                    "ddim_sigma": 0.0,
+                                    "schedule_params": {
+                                        "ddpm_num_steps": timesteps,
+                                        "jump_length": 10,
+                                        "jump_n_sample": 2,
+                                        "num_inference_steps": 200,
+                                        "schedule_type": "linear",
+                                        "time_travel_filter_type": "none",
+                                        "use_timetravel": True
+                                    }
+                                },
+                                "optimize_xt": {
+                                    "coef_xt_reg": 0.0001,
+                                    "coef_xt_reg_decay": 1.01,
+                                    "filter_xT": False,
+                                    "lr_xt": 0.02,
+                                    "lr_xt_decay": 1.012,
+                                    "mid_interval_num": 1,
+                                    "num_iteration_optimize_xt": 2,
+                                    "optimize_before_time_travel": True,
+                                    "optimize_xt": True,
+                                    "use_adaptive_lr_xt": True,
+                                    "use_smart_lr_xt_decay": True
+                                
+                                },
+                            "debug":False
+                        },  use_argparse=False),
+        "imagenet":config.Config(default_config_dict={
+                            "respace_interpolate": False,
+                                "ddim": {
+                                    "ddim_sigma": 0.0,
+                                    "schedule_params": {
+                                        "ddpm_num_steps": timesteps,
+                                        "jump_length": 10,
+                                        "jump_n_sample": 2,
+                                        "num_inference_steps": 200,
+                                        "schedule_type": "linear",
+                                        "time_travel_filter_type": "none",
+                                        "use_timetravel": True
+                                    }
+                                },
+                                "optimize_xt": {
+                                    "coef_xt_reg": 0.01,
+                                    "coef_xt_reg_decay": 1.0,
+                                    "filter_xT": False,
+                                    "lr_xt": 0.02,
+                                    "lr_xt_decay": 1.012,
+                                    "mid_interval_num": 1,
+                                    "num_iteration_optimize_xt": 2,
+                                    "optimize_before_time_travel": True,
+                                    "optimize_xt": True,
+                                    "use_adaptive_lr_xt": True,
+                                    "use_smart_lr_xt_decay": True
+                                
+                                },
+                            "debug":False
+                        },  use_argparse=False),
+    }
+    return config_lib
+
 
 def model_libary(image_size, channels, epoch, device, batch_size):
     unet_spec = {
