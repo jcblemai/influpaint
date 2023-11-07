@@ -128,7 +128,7 @@ if __name__ == '__main__':
                             
                             ddpm1.load_model_checkpoint(checkpoint_fn)
 
-                            fdates = pd.date_range("2022-11-14", "2023-05-15", freq="4W-MON")
+                            fdates = pd.date_range("2022-11-14", "2023-05-15", freq="5W-MON")
                             for date in fdates:
                                 gt1 = ground_truth.GroundTruth(season_first_year="2022", 
                                                             data_date=datetime.datetime.today(), 
@@ -143,7 +143,7 @@ if __name__ == '__main__':
                                 gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
 
                                 # ****************** REPaint ******************
-                                for resampling_steps in [1, 10, 30]:
+                                for resampling_steps in [1, 10]:
                                     inpaint1 = inpaint.REpaint(ddpm=ddpm1, gt=gt, gt_keep_mask=gt_keep_mask, resampling_steps=resampling_steps)
                                 
                                     n_samples = batch_size
@@ -172,7 +172,7 @@ if __name__ == '__main__':
                                                         nochecks=True)
 
                                 # ****************** CoPaint ******************
-                                for conf_name, conf in epiframework.copaint_config_library(ddpm1.timesteps):
+                                for conf_name, conf in epiframework.copaint_config_library(ddpm1.timesteps).items():
                                     sampler = O_DDIMSampler(use_timesteps=np.arange(ddpm1.timesteps), 
                                                         conf=conf,
                                                         betas=ddpm1.betas, 
