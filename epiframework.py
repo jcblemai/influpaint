@@ -3,6 +3,7 @@ import itertools
 import datetime
 import numpy as np
 import pandas as pd
+import data_utils, data_classes
 
 
 def get_git_revision_short_hash() -> str:
@@ -13,12 +14,65 @@ def create_folders(path):
     from pathlib import Path
     Path(path).mkdir(parents=True, exist_ok=True)
 
+def transform_library(scaling_per_channel):
+    from torchvision import transforms
+
+    print(scaling_per_channel)
+
+    transform_enrich = {
+        "No":transforms.Compose([]),
+        "PoisPadScale":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
+                transforms.Lambda(lambda t: data_classes.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
+                transforms.Lambda(lambda t: data_classes.transform_randomscale(t, min=.1, max=1.9)),
+        ]),
+        "PoisPadScaleSmall":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
+                transforms.Lambda(lambda t: data_classes.transform_random_padintime(t, min_shift = -4, max_shift = 4)),
+                transforms.Lambda(lambda t: data_classes.transform_randomscale(t, min=.7, max=1.3)),
+        ]),
+        "Pois":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
+        ])
+    }
+
+#                         transforms.Lambda(lambda t: data_classes.transform_skewednoise(t, scale=.4, a=-1.8))
+
+    transforms_spec = {
+        # No scaling (linear scale)
+        "Lins":{
+            "reg":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 2))  ,
+        ]),
+            "inv":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 2)),
+        ][::-1])  
+        },
+        # sqrt scale
+        "Sqrt":{
+            "reg":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                data_classes.transform_sqrt,
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 2))  ,
+        ]),
+            "inv":transforms.Compose([
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                data_classes.transform_sqrt_inv,
+                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 2)),
+        ][::-1])  
+            },
+        }
+
+    return transforms_spec, transform_enrich
+
 
 def create_run_config(run_id, specifications):
 
     if setup.scale == 'Regions':
         scenarios_specs = {
-            'vaccpermonthM': [3, 15, 150],  # ax.set_ylim(0.05, 0.4)
+            'dataset': [3, 15, 150],  # ax.set_ylim(0.05, 0.4)
             # 'vacctotalM': [2, 5, 10, 15, 20],
             'newdoseperweek': [125000, 250000, 479700, 1e6, 1.5e6, 2e6],
             'epicourse': ['U', 'L']  # 'U'
@@ -56,19 +110,5 @@ def create_run_config(run_id, specifications):
                 'rate_fomula': f"({scn_spec['vaccpermonthM'] * 1e6 / tot_pop / 30}*pop_nd)"
                 }
 
-    # Build beta scenarios:
-    if scn_spec['epicourse'] == 'C':
-        scenario['beta_mult'] = np.ones((setup.nnodes, setup.ndays))
-    elif scn_spec['epicourse'] == 'U':
-        course = scipy.interpolate.interp1d([0, 10, 40, 80, 100, 1000], [1.4, 1.2, .9,.8, 1.2, .75], kind='linear')
-        course = scipy.interpolate.interp1d([0, 10, 40, 80, 100, 1000],
-                                            [1.8 * .97, 1.5 * .97, .7 * .97, 1.2 * .97, 1.2 * .97, .75 * .97],
-                                            kind='cubic')
-        course = course(np.arange(0, setup.ndays))
-        scenario['beta_mult'] = np.ones((setup.nnodes, setup.ndays)) * course
-    elif scn_spec['epicourse'] == 'L':
-        course = scipy.interpolate.interp1d([0, 10, 40, 80, 100, 1000], [.8, .4, 1.2, .7, .75, .75], kind='linear')
-        course = scipy.interpolate.interp1d([0, 10, 40, 80, 100, 1000], [1.8, .9, .8, .68, .75, .75], kind='cubic')
-        course = course(np.arange(0, setup.ndays))
-        scenario['beta_mult'] = np.ones((setup.nnodes, setup.ndays)) * course
+ 
     return scenario

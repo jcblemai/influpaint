@@ -17,12 +17,13 @@ import myutils, data_utils
 
 
 class GroundTruth():
-    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64):
+    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64, nogit=False):
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
 
-        self.git_checkout_data_rev(target_date=None)
+
+        if not nogit: self.git_checkout_data_rev(target_date=None)
 
         if self.season_first_year == "2023":
             self.flusetup = data_utils.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2023-07-24"), remove_territories=True)
@@ -31,10 +32,10 @@ class GroundTruth():
             if from_final_data:
                 gt_df = gt_df_final.copy()
             else:
-                self.git_checkout_data_rev(target_date=data_date)
+                if not nogit: self.git_checkout_data_rev(target_date=data_date)
                 flusight = data_utils.get_from_epidata(dataset="flusight2023_24", flusetup=self.flusetup, write=False)
                 gt_df = flusight[flusight["fluseason"] == 2023]   
-                self.git_checkout_data_rev(target_date=None)
+                if not nogit: self.git_checkout_data_rev(target_date=None)
         elif self.season_first_year == "2022":
             self.flusetup = data_utils.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2022-07-24"), remove_territories=True)
             flusight = data_utils.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
@@ -42,10 +43,10 @@ class GroundTruth():
             if from_final_data:
                 gt_df = gt_df_final.copy()
             else:
-                self.git_checkout_data_rev(target_date=data_date)
+                if not nogit: self.git_checkout_data_rev(target_date=data_date)
                 flusight = data_utils.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
                 gt_df = flusight[flusight["fluseason"] == 2022]
-                self.git_checkout_data_rev(target_date=None)  
+                if not nogit: self.git_checkout_data_rev(target_date=None)  
         else:
             raise ValueError("not supported")
         

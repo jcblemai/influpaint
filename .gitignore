@@ -1,4 +1,4 @@
-
+*.out
 CoPaint4influpaint/
 helpers/delphi_epidata.py
 referenceimplementations/

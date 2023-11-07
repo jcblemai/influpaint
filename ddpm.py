@@ -208,14 +208,15 @@ class DDPM:
 
             # scheduler1.step()
 
-    def write_train_checkpoint(self):
-        save_path = f"checkpoint-{self.epoch}.pth"
+    def write_train_checkpoint(self, save_path=None):
+        if save_path is None:
+            save_path = f"checkpoint-{self.epoch}.pth"
         torch.save(
             {
-                "epoch": self.epoch,
+                "epochs": self.epochs,
                 "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
-                "loss": self.loss,
+                "loss_type": self.loss_type,
             },
             save_path,
         )
@@ -225,8 +226,8 @@ class DDPM:
         checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        epoch = checkpoint["epoch"]
-        loss = checkpoint["loss"]
+        self.epochs = checkpoint["epoch"]
+        self.loss_type = checkpoint["loss_type"]
         self.model.eval()
         # necessary ????
         self.model.train()
