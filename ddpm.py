@@ -226,11 +226,12 @@ class DDPM:
         checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.epochs = checkpoint["epoch"]
+        self.epochs = checkpoint["epochs"]
         self.loss_type = checkpoint["loss_type"]
         self.model.eval()
         # necessary ????
         self.model.train()
+        self.model.to(self.device)
 
     def p_losses(self, denoise_model, x_start, t, noise=None, loss_type="l1"):
         if noise is None:

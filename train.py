@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
                     if this_spec_id in spec_ids:
                     
-                        model_id = f"{file_prefix}::model_{unet_name}::dataset:{dataset_name}::trans_{transform_name}::enrich_{enrich_name}"
+                        model_id = f"{file_prefix}::model_{unet_name}::dataset_{dataset_name}::trans_{transform_name}::enrich_{enrich_name}"
                         model_folder = f"{outdir}{epiframework.get_git_revision_short_hash()}_{datetime.date.today()}"
 
                         print(f">>> doing {model_id}")
@@ -84,7 +84,7 @@ if __name__ == '__main__':
                         unet.train(dataloader=dataloader)
 
 
-                        unet.write_train_checkpoint(save_path=f"{model_folder}/{model_id}-{epoch}.pth")
+                        unet.write_train_checkpoint(save_path=f"{model_folder}/{model_id}::{epoch}.pth")
 
                         samples = unet.sample()
 
@@ -95,7 +95,7 @@ if __name__ == '__main__':
                             for i in range(batch_size):
                                 idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax, place=ipl, multi=True)
 
-                        plt.savefig(f"{model_folder}/{model_id}-{epoch}-samples.pdf")
+                        plt.savefig(f"{model_folder}/{model_id}-{epoch}::samples.pdf")
 
                     this_spec_id += 1
 
