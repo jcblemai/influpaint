@@ -40,21 +40,21 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-s", "--spec_id", "spec_ids", default=1, help="ID of the model to run")
 @click.option("-t", "--train", "train", type=bool, default=False, show_default=True,
             help="Whether to run the inpainting of just train models")
-@click.option("-i", "--inpaint", "inpaint", type=bool, default=False, show_default=True,
+@click.option("-i", "--inpaint", "inpaint_b", type=bool, default=False, show_default=True,
             help="Whether to run the inpainting of just train models")
 @click.option("-f", "--file_prefix", "file_prefix", envvar="FILE_PREFIX", type=str, default='test',
             show_default=True, help="file prefix to add to identify the current set of runs.")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, default='/work/users/c/h/chadi/influpaint_res/',
             show_default=True, help="Where to write runs")
-def cli(spec_ids, train, inpaint, file_prefix, outdir):
+def cli(spec_ids, train, inpaint_b, file_prefix, outdir):
     if not isinstance(spec_ids, list):
         spec_ids = [int(spec_ids)]
-    return spec_ids, train, inpaint, file_prefix, outdir
+    return spec_ids, train, inpaint_b, file_prefix, outdir
 
 if __name__ == '__main__':
     # standalone_mode: so click doesn't exit, see
     # https://stackoverflow.com/questions/60319832/how-to-continue-execution-of-python-script-after-evaluating-a-click-cli-function
-    spec_ids, train, inpaint, file_prefix, outdir = cli(standalone_mode=False)
+    spec_ids, train, inpaint_b, file_prefix, outdir = cli(standalone_mode=False)
     season_first_year="2022"
     
 
@@ -102,7 +102,7 @@ if __name__ == '__main__':
                             plt.savefig(f"{model_folder}/{model_id}-{epoch}::samples.pdf")
                         
                         # *************** INPAINTING ***************
-                        if inpaint:
+                        if inpaint_b:
                             model_folder = f"/work/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07"
                             checkpoint_fn = f"{model_folder}/{model_id}::{epoch}.pth"
 
