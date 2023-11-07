@@ -50,45 +50,15 @@ if __name__ == '__main__':
     
 
     gt1 = ground_truth.GroundTruth(season_first_year=season_first_year, 
-                               data_date=datetime.datetime(2022,10,25), 
-                               mask_date=datetime.datetime(2022,10,25),
-                               channels=channels,
-                               image_size=image_size,
-                               nogit=True #so git is not damaged.
-                               )
-
-    unet_spec = {
-        "MyUnet200": ddpm.DDPM(model=nn_blocks.Unet(
-                                    dim=image_size,
+                                    data_date=datetime.datetime(2022,10,25), 
+                                    mask_date=datetime.datetime(2022,10,25),
                                     channels=channels,
-                                    dim_mults=(1, 2, 4,),
-                                    use_convnext=False
-                                ), 
-                    image_size=image_size, 
-                    channels=channels, 
-                    batch_size=batch_size, 
-                    epochs=epoch, 
-                    timesteps=200,
-                    device=device),
-        "MyUnet500": ddpm.DDPM(model=nn_blocks.Unet(
-                                    dim=image_size,
-                                    channels=channels,
-                                    dim_mults=(1, 2, 4,),
-                                    use_convnext=False
-                                ), 
-                    image_size=image_size, 
-                    channels=channels, 
-                    batch_size=batch_size, 
-                    epochs=epoch, 
-                    timesteps=500,
-                    device=device)
-    }
+                                    image_size=image_size,
+                                    nogit=True #so git is not damaged.
+                                )
+    unet_spec = epiframework.model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
 
-    dataset_spec = {
-            #"Fv":data_classes.FluDataset.from_fluview(flusetup=gt1.flusetup, download=False),
-            "R1Fv": data_classes.FluDataset.from_SMHR1_fluview(flusetup=gt1.flusetup, download=False),
-            "R1": data_classes.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
-    }
+    dataset_spec = epiframework.dataset_library(gt1=gt1, channels=channels)
 
     this_spec_id = 0
 

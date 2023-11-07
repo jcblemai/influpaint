@@ -4,6 +4,44 @@ import datetime
 import numpy as np
 import pandas as pd
 import data_utils, data_classes
+import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth
+
+
+def model_libary(image_size, channels, epoch, device, batch_size):
+    unet_spec = {
+        "MyUnet200": ddpm.DDPM(model=nn_blocks.Unet(
+                                    dim=image_size,
+                                    channels=channels,
+                                    dim_mults=(1, 2, 4,),
+                                    use_convnext=False
+                                ), 
+                    image_size=image_size, 
+                    channels=channels, 
+                    batch_size=batch_size, 
+                    epochs=epoch, 
+                    timesteps=200,
+                    device=device),
+        "MyUnet500": ddpm.DDPM(model=nn_blocks.Unet(
+                                    dim=image_size,
+                                    channels=channels,
+                                    dim_mults=(1, 2, 4,),
+                                    use_convnext=False
+                                ), 
+                    image_size=image_size, 
+                    channels=channels, 
+                    batch_size=batch_size, 
+                    epochs=epoch, 
+                    timesteps=500,
+                    device=device)
+    }
+    return unet_spec
+def dataset_library(gt1, channels):
+    dataset_spec = {
+            #"Fv":data_classes.FluDataset.from_fluview(flusetup=gt1.flusetup, download=False),
+            "R1Fv": data_classes.FluDataset.from_SMHR1_fluview(flusetup=gt1.flusetup, download=False),
+            "R1": data_classes.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
+    }
+    return dataset_spec
 
 
 def get_git_revision_short_hash() -> str:
