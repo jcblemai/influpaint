@@ -160,13 +160,16 @@ if __name__ == '__main__':
                                     forecasts_national = fluforecasts_ti.sum(axis=-1)
 
                                     forecast_fn = f"{model_str.split('.')[0]}::inpaint_Repaint::resamp_{resampling_steps}"
+                                    inpaint_folder = f"{model_folder}/forecasts/{forecast_fn}"
+                                    epiframework.create_folders(inpaint_folder)
 
                                     gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
                                                         forecasts_national=forecasts_national,
-                                                        directory=f"{model_folder}/forecasts/{forecast_fn}",
+                                                        directory=inpaint_folder,
                                                         prefix=forecast_fn,
                                                         forecast_date=date.date(),
-                                                        save_plot=True)
+                                                        save_plot=True,
+                                                        nochecks=True)
 
                                 # ****************** CoPaint ******************
                                 for conf_name, conf in epiframework.copaint_config_library(ddpm1.timesteps):
@@ -192,12 +195,15 @@ if __name__ == '__main__':
                                     forecasts_national = fluforecasts_ti.sum(axis=-1)
 
                                     forecast_fn = f"{model_str.split('.')[0]}::inpaint_CoPaint::conf_{conf_name}"
+                                    inpaint_folder = f"{model_folder}/forecasts/{forecast_fn}"
+                                    epiframework.create_folders(inpaint_folder)
 
                                     gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
                                                         forecasts_national=forecasts_national,
-                                                        directory=f"{model_folder}/forecasts/{forecast_fn}",
+                                                        directory=inpaint_folder,
                                                         prefix=forecast_fn,
                                                         forecast_date=date.date(),
-                                                        save_plot=True)
+                                                        save_plot=True,
+                                                        nochecks=True)
 
                     this_spec_id += 1

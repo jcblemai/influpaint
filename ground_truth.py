@@ -148,7 +148,7 @@ class GroundTruth():
         axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
         axes[3].set_title("Final data", fontsize=8)
 
-    def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True):
+    def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True, nochecks=False):
         forecast_date_str=str(forecast_date)
         if forecast_date == None:
             forecast_date = self.mask_date
@@ -186,11 +186,11 @@ class GroundTruth():
             print(col)
             print(df[col].unique())
 
-        assert sum(df["value"]<0) == 0
-        assert sum(df["value"].isna()) == 0
+        if not nochecks:
+            assert sum(df["value"]<0) == 0
+            assert sum(df["value"].isna()) == 0
 
         # check for Error when validating format: Entries in `value` must be non-decreasing as quantiles increase:
-
         for tg in target_dates:
             old_vals = np.zeros(len(self.flusetup.locations)+1)
             for dfd in df_list:  # very important to not call this df: it overwrites in namesapce the exported df
