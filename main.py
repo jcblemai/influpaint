@@ -37,7 +37,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 @click.command()
-@click.option("-s", "--spec_id", "spec_ids", default=1, help="ID of the model to run")
+@click.option("-s", "--spec_id", "spec_ids", default=-1, help="ID of the model to run")
 @click.option("-t", "--train", "train", type=bool, default=False, show_default=True,
             help="Whether to run the inpainting of just train models")
 @click.option("-i", "--inpaint", "inpaint_b", type=bool, default=False, show_default=True,
@@ -47,6 +47,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, default='/work/users/c/h/chadi/influpaint_res/',
             show_default=True, help="Where to write runs")
 def cli(spec_ids, train, inpaint_b, file_prefix, outdir):
+    if spec_ids == -1:
+            spec_ids = list(np.arange(100))
     if not isinstance(spec_ids, list):
         spec_ids = [int(spec_ids)]
     return spec_ids, train, inpaint_b, file_prefix, outdir
@@ -80,6 +82,8 @@ if __name__ == '__main__':
                     if this_spec_id in spec_ids:
                         model_id = f"{file_prefix}::model_{unet_name}::dataset_{dataset_name}::trans_{transform_name}::enrich_{enrich_name}"
                         dataset.add_transform(transform=transform["reg"], transform_inv=transform["inv"], transform_enrich=enrich, bypass_test=False)
+
+                        print(f"id: {this_spec_id} >> doing {model_id}")
 
                         # *************** TRAINING ***************
                         if train:
