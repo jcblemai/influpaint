@@ -332,3 +332,69 @@ class GroundTruth():
                 sns.despine(ax = ax, trim = True, offset=4)
             fig.tight_layout()
             plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
+
+    def export_forecasts_2023(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True, nochecks=False):
+        forecast_date_str=str(forecast_date)
+        if forecast_date == None:
+            forecast_date = self.mask_date
+
+        target_dates = pd.date_range(forecast_date, forecast_date + datetime.timedelta(days=3*7), freq="W-SAT")
+
+        target_dict= dict(zip(
+            target_dates, 
+            [f"{n}" for n in range(0,4)]))
+
+        print(target_dates)
+
+        df_list=[]
+        for qt in myutils.flusight_quantiles:
+            a =  pd.DataFrame(np.quantile(fluforecasts_ti[:,:,:,:len(self.flusetup.locations)], qt, axis=0)[0], 
+                    columns= self.flusetup.locations, index=pd.date_range(self.flusetup.fluseason_startdate, self.flusetup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+            #a["US"] = a.sum(axis=1)
+            a["US"] = pd.DataFrame(np.quantile(forecasts_national, qt, axis=0)[0],
+                    columns= ["US"], index=pd.date_range(self.flusetup.fluseason_startdate, self.flusetup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+
+            a = a.reset_index().rename(columns={'index': 'target_end_date'})
+            a = pd.melt(a,id_vars="target_end_date",var_name="location")
+            a["output_type_id"] = '{:<.3f}'.format(qt)
+            
+            df_list.append(a)
+
+        df = pd.concat(df_list)
+        df["reference_date"] = forecast_date_str
+        df["target"] = "wk inc flu hosp"
+        df["horizon"] = df["target_end_date"].map(target_dict)
+        df["output_type"] = "quantile"
+        df = df[["reference_date","target","horizon","target_end_date","location","output_type","output_type_id","value"]]
+        df
+
+        for col in df.columns:
+            print(col)
+            print(df[col].unique())
+
+        if not nochecks:
+            assert sum(df["value"]<0) == 0
+            assert sum(df["value"].isna()) == 0
+
+        # check for Error when validating format: Entries in `value` must be non-decreasing as quantiles increase:
+        for tg in target_dates:
+            old_vals = np.zeros(len(self.flusetup.locations)+1)
+            for dfd in df_list:  # very important to not call this df: it overwrites in namesapce the exported df
+                new_vals = dfd[dfd["target_end_date"]==tg]["value"].to_numpy()
+                if not (new_vals-old_vals >= 0).all():
+                    print(f""" !!!! failed for {dfd["quantile"].unique()} on date {tg}""")
+                    print((new_vals-old_vals).max())
+                    for n, o, p in zip(new_vals, old_vals, dfd.location.unique()):
+                        if "US" not in p:
+                            p=p+self.flusetup.get_location_name(p)
+                        print((n-o>0),p, n, o)
+                else:
+                    pass
+                    #print(f"""ok for {dfd["quantile"].unique()}, {tg}""")
+                old_vals = new_vals
+
+        df.to_csv(f"{directory}/{prefix}-{forecast_date_str}.csv", index=False)
+
+        if save_plot:
+            self.plot_forecasts(fluforecasts_ti, forecasts_national, directory=directory, prefix=prefix, forecast_date=forecast_date)
+        
