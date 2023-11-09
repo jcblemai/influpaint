@@ -283,53 +283,53 @@ class GroundTruth():
                 #ax.set_xticks(np.arange(0,53,13))
 
 
-            ax.set_xlim(x_lims)
-            ax.set_ylim(bottom=0, top=max_y_value)
-            ax.axvline(idx_now, c='k', lw=1, ls='-.')
-            if iax == 0:
-                ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
-            ax.set_title("National")
-
-            sns.despine(ax = ax, trim = True, offset=4)
-
-            # INDIVDIDUAL STATES: quantiles, median and ground-truth
-            max_y_value = np.zeros(52)
-            for iqt in plot_spec["quantiles_idx"]:
-                yup = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
-                ylo = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
-
-                # widest quantile pair is the first one. We take the up quantile of it + a few % as x_lim
-                if iqt == plot_spec["quantiles_idx"][0]:
-                    for ipl in range(nplace_toplot):
-                        if plot_past_median:
-                            max_y_value[ipl] = max(ylo[x_lims[0]:x_lims[1], ipl])
-                        else:
-                            max_y_value[ipl] = max(ylo[self.inpaintfrom_idx:x_lims[1], ipl])
-                        #max_y_value[ipl] =  max(ylo[x_lims[:x_lims[1], ipl])
-                        max_y_value[ipl] = max(max_y_value[ipl], self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl][x_lims[0]:x_lims[1]].max())
-                        max_y_value[ipl] = max_y_value[ipl] + max_y_value[ipl]*.05 # 10% more for the y_max value
-
-                for ipl in range(nplace_toplot):
-                    ax = axes[ipl+1][iax]
-                    ax.fill_between((x)[plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
-
-            # median line and ground truth for states
-            for ipl in range(nplace_toplot):   
-                ax = axes[ipl+1][iax]
-                # median
-                ax.plot(np.arange(64)[plotrange],
-                        np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
-                # ground truth
-                ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
-
+                ax.set_xlim(x_lims)
+                ax.set_ylim(bottom=0, top=max_y_value)
                 ax.axvline(idx_now, c='k', lw=1, ls='-.')
                 if iax == 0:
                     ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
-                ax.set_xlim(x_lims)
-                ax.set_ylim(bottom=0, top=max_y_value[ipl])
-                if iax==0: ax.set_ylabel("New Hosp. Admissions")
-                ax.set_title(self.flusetup.get_location_name(self.flusetup.locations[ipl]))
+                ax.set_title("National")
+
                 sns.despine(ax = ax, trim = True, offset=4)
+
+                # INDIVDIDUAL STATES: quantiles, median and ground-truth
+                max_y_value = np.zeros(52)
+                for iqt in plot_spec["quantiles_idx"]:
+                    yup = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
+                    ylo = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
+
+                    # widest quantile pair is the first one. We take the up quantile of it + a few % as x_lim
+                    if iqt == plot_spec["quantiles_idx"][0]:
+                        for ipl in range(nplace_toplot):
+                            if plot_past_median:
+                                max_y_value[ipl] = max(ylo[x_lims[0]:x_lims[1], ipl])
+                            else:
+                                max_y_value[ipl] = max(ylo[self.inpaintfrom_idx:x_lims[1], ipl])
+                            #max_y_value[ipl] =  max(ylo[x_lims[:x_lims[1], ipl])
+                            max_y_value[ipl] = max(max_y_value[ipl], self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl][x_lims[0]:x_lims[1]].max())
+                            max_y_value[ipl] = max_y_value[ipl] + max_y_value[ipl]*.05 # 10% more for the y_max value
+
+                    for ipl in range(nplace_toplot):
+                        ax = axes[ipl+1][iax]
+                        ax.fill_between((x)[plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
+
+                # median line and ground truth for states
+                for ipl in range(nplace_toplot):   
+                    ax = axes[ipl+1][iax]
+                    # median
+                    ax.plot(np.arange(64)[plotrange],
+                            np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
+                    # ground truth
+                    ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+
+                    ax.axvline(idx_now, c='k', lw=1, ls='-.')
+                    if iax == 0:
+                        ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
+                    ax.set_xlim(x_lims)
+                    ax.set_ylim(bottom=0, top=max_y_value[ipl])
+                    if iax==0: ax.set_ylabel("New Hosp. Admissions")
+                    ax.set_title(self.flusetup.get_location_name(self.flusetup.locations[ipl]))
+                    sns.despine(ax = ax, trim = True, offset=4)
             fig.tight_layout()
             plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
 
