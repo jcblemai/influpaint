@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -p jlessler
-#SBATCH --mem=64G
-#SBATCH -t 00-09:00:00
+#SBATCH --qos gpu_access
+#SBATCH -p a100-gpu
+#SBATCH --mem=32G
+#SBATCH -t 00-16:00:00
 #SBATCH --array=0-31
 #SBATCH --gres=gpu:1
 
@@ -17,3 +18,5 @@ module purge
 /nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u main.py --spec_id ${SLURM_ARRAY_TASK_ID} --inpaint True > out_inpaint_${SLURM_ARRAY_TASK_ID}.out 2>&1
 
 
+# #SBATCH -p jlessler
+# #SBATCH --mem=64G
