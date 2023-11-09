@@ -3,7 +3,7 @@
 #SBATCH -n 1
 #SBATCH -p jlessler
 #SBATCH --mem=64G
-#SBATCH -t 00-04:00:00
+#SBATCH -t 00-09:00:00
 #SBATCH --array=0-31
 #SBATCH --gres=gpu:1
 

@@ -23,7 +23,7 @@ def copaint_config_library(timesteps):
                                         "ddpm_num_steps": timesteps,
                                         "jump_length": 20, #10,
                                         "jump_n_sample": 4, #2,
-                                        "num_inference_steps": 200,
+                                        "num_inference_steps": timesteps,
                                         "schedule_type": "linear",
                                         "time_travel_filter_type": "none",
                                         "use_timetravel": True
@@ -36,7 +36,7 @@ def copaint_config_library(timesteps):
                                     "lr_xt": 0.02,
                                     "lr_xt_decay": 1.012,
                                     "mid_interval_num": 1,
-                                    "num_iteration_optimize_xt": 2,
+                                    "num_iteration_optimize_xt": 5,
                                     "optimize_before_time_travel": True,
                                     "optimize_xt": True,
                                     "use_adaptive_lr_xt": True,
@@ -45,7 +45,7 @@ def copaint_config_library(timesteps):
                                 },
                             "debug":False
                         },  use_argparse=False),
-        "celebahq_try2":config.Config(default_config_dict={
+        "celebahq_noTT":config.Config(default_config_dict={
                             "respace_interpolate": False,
                                 "ddim": {
                                     "ddim_sigma": 0.0,
@@ -53,10 +53,10 @@ def copaint_config_library(timesteps):
                                         "ddpm_num_steps": timesteps,
                                         "jump_length": 10,
                                         "jump_n_sample": 2,
-                                        "num_inference_steps": 200,
+                                        "num_inference_steps": timesteps,
                                         "schedule_type": "linear",
                                         "time_travel_filter_type": "none",
-                                        "use_timetravel": True, #False
+                                        "use_timetravel": False,
                                     }
                                 },
                                 "optimize_xt": {
@@ -81,9 +81,9 @@ def copaint_config_library(timesteps):
                                     "ddim_sigma": 0.0,
                                     "schedule_params": {
                                         "ddpm_num_steps": timesteps,
-                                        "jump_length": 5,
+                                        "jump_length": 5, #10
                                         "jump_n_sample": 2,
-                                        "num_inference_steps": 200,
+                                        "num_inference_steps": timesteps,
                                         "schedule_type": "linear",
                                         "time_travel_filter_type": "none",
                                         "use_timetravel": True
@@ -101,40 +101,38 @@ def copaint_config_library(timesteps):
                                     "optimize_xt": True,
                                     "use_adaptive_lr_xt": True,
                                     "use_smart_lr_xt_decay": True
-                                
                                 },
                             "debug":False
                         },  use_argparse=False),
-        #"celebahq":config.Config(default_config_dict={
-        #                    "respace_interpolate": False,
-        #                        "ddim": {
-        #                            "ddim_sigma": 0.0,
-        #                            "schedule_params": {
-        #                                "ddpm_num_steps": timesteps,
-        #                                "jump_length": 10,
-        #                                "jump_n_sample": 2,
-        #                                "num_inference_steps": 200,
-        #                                "schedule_type": "linear",
-        #                                "time_travel_filter_type": "none",
-        #                                "use_timetravel": True
-        #                            }
-        #                        },
-        #                        "optimize_xt": {
-        #                            "coef_xt_reg": 0.0001,
-        #                            "coef_xt_reg_decay": 1.01,
-        #                            "filter_xT": False,
-        #                            "lr_xt": 0.02,
-        #                            "lr_xt_decay": 1.012,
-        #                            "mid_interval_num": 1,
-        #                            "num_iteration_optimize_xt": 2,
-        #                            "optimize_before_time_travel": True,
-        #                            "optimize_xt": True,
-        #                            "use_adaptive_lr_xt": True,
-        #                            "use_smart_lr_xt_decay": True
-        #                        
-        #                        },
-        #                    "debug":False
-        #                },  use_argparse=False),
+        "celebahq":config.Config(default_config_dict={
+                            "respace_interpolate": False,
+                                "ddim": {
+                                    "ddim_sigma": 0.0,
+                                    "schedule_params": {
+                                        "ddpm_num_steps": timesteps,
+                                        "jump_length": 10,
+                                        "jump_n_sample": 2,
+                                        "num_inference_steps": timesteps,
+                                        "schedule_type": "linear",
+                                        "time_travel_filter_type": "none",
+                                        "use_timetravel": True
+                                    }
+                                },
+                                "optimize_xt": {
+                                    "coef_xt_reg": 0.0001,
+                                    "coef_xt_reg_decay": 1.01,
+                                    "filter_xT": False,
+                                    "lr_xt": 0.02,
+                                    "lr_xt_decay": 1.012,
+                                    "mid_interval_num": 1,
+                                    "num_iteration_optimize_xt": 2,
+                                    "optimize_before_time_travel": True,
+                                    "optimize_xt": True,
+                                    "use_adaptive_lr_xt": True,
+                                    "use_smart_lr_xt_decay": True
+                                },
+                            "debug":False
+                        },  use_argparse=False),
         #"imagenet":config.Config(default_config_dict={
         #                    "respace_interpolate": False,
         #                        "ddim": {

@@ -132,7 +132,8 @@ if __name__ == '__main__':
                             
                             ddpm1.load_model_checkpoint(checkpoint_fn)
 
-                            fdates = pd.date_range("2022-11-14", "2023-05-15", freq="5W-MON")
+                            #fdates = pd.date_range("2022-11-14", "2023-05-15", freq="5W-MON")
+                            fdates = pd.DatetimeIndex(['2022-11-07','2022-11-14','2022-12-12','2023-01-09','2023-03-06'])
                             for date in fdates:
                                 gt1 = ground_truth.GroundTruth(season_first_year="2022", 
                                                             data_date=datetime.datetime.today(), 
@@ -146,34 +147,34 @@ if __name__ == '__main__':
                                 gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(device)
                                 gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
 
-                                # ****************** REPaint ******************
-                                for resampling_steps in [1, 10]:
-                                    inpaint1 = inpaint.REpaint(ddpm=ddpm1, gt=gt, gt_keep_mask=gt_keep_mask, resampling_steps=resampling_steps)
-                                
-                                    n_samples = batch_size
-                                    all_samples = []
-                                    for i in range(max(n_samples//batch_size,1)):
-                                        samples = inpaint1.sample_paint()
-                                        all_samples.append(samples)
-                                    fluforecasts = -1*np.ones((batch_size*max(n_samples//batch_size,1), 1, 64, 64))
-                                    for i in range(max(n_samples//batch_size,1)):
-                                        fluforecasts[i*batch_size:i*batch_size+batch_size] = all_samples[i][-1]
-                                    
-                                    fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
-                                    # compute the national quantiles, important as sum of quantiles >> quantiles of sum
-                                    forecasts_national = fluforecasts_ti.sum(axis=-1)
+                                # # ****************** REPaint ******************
+                                # for resampling_steps in [1, 10]:
+                                #     inpaint1 = inpaint.REpaint(ddpm=ddpm1, gt=gt, gt_keep_mask=gt_keep_mask, resampling_steps=resampling_steps)
+                                # 
+                                #     n_samples = batch_size
+                                #     all_samples = []
+                                #     for i in range(max(n_samples//batch_size,1)):
+                                #         samples = inpaint1.sample_paint()
+                                #         all_samples.append(samples)
+                                #     fluforecasts = -1*np.ones((batch_size*max(n_samples//batch_size,1), 1, 64, 64))
+                                #     for i in range(max(n_samples//batch_size,1)):
+                                #         fluforecasts[i*batch_size:i*batch_size+batch_size] = all_samples[i][-1]
+                                #     
+                                #     fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
+                                #     # compute the national quantiles, important as sum of quantiles >> quantiles of sum
+                                #     forecasts_national = fluforecasts_ti.sum(axis=-1)
 
-                                    forecast_fn = f"{model_str.split('.')[0]}::inpaint_Repaint::resamp_{resampling_steps}"
-                                    inpaint_folder = f"{model_folder}/forecasts/{forecast_fn}"
-                                    epiframework.create_folders(inpaint_folder)
+                                #     forecast_fn = f"{model_str.split('.')[0]}::inpaint_Repaint::resamp_{resampling_steps}"
+                                #     inpaint_folder = f"{model_folder}/forecasts/{forecast_fn}"
+                                #     epiframework.create_folders(inpaint_folder)
 
-                                    gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
-                                                        forecasts_national=forecasts_national,
-                                                        directory=inpaint_folder,
-                                                        prefix=forecast_fn,
-                                                        forecast_date=date.date(),
-                                                        save_plot=True,
-                                                        nochecks=True)
+                                #     gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
+                                #                         forecasts_national=forecasts_national,
+                                #                         directory=inpaint_folder,
+                                #                         prefix=forecast_fn,
+                                #                         forecast_date=date.date(),
+                                #                         save_plot=True,
+                                #                         nochecks=True)
 
                                 # ****************** CoPaint ******************
                                 for conf_name, conf in epiframework.copaint_config_library(ddpm1.timesteps).items():

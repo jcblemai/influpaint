@@ -356,7 +356,7 @@ class GroundTruth():
 
             a = a.reset_index().rename(columns={'index': 'target_end_date'})
             a = pd.melt(a,id_vars="target_end_date",var_name="location")
-            a["output_type_id"] = '{:<.3f}'.format(qt)
+            a["output_type_id"] = f"{qt}" #'{:<.3f}'.format(qt)
             
             df_list.append(a)
 
