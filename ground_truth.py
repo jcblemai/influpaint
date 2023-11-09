@@ -333,7 +333,7 @@ class GroundTruth():
             fig.tight_layout()
             plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
 
-    def export_forecasts_2023(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True, nochecks=False):
+    def export_forecasts_2023(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True, nochecks=False, rate_trend=True):
         forecast_date_str=str(forecast_date)
         if forecast_date == None:
             forecast_date = self.mask_date
@@ -392,6 +392,29 @@ class GroundTruth():
                     pass
                     #print(f"""ok for {dfd["quantile"].unique()}, {tg}""")
                 old_vals = new_vals
+
+#        if rate_trend:
+#            df_list=[]
+#            for sim_id in np.arange(fluforecasts_ti.shape[0]):
+#            #for qt in myutils.flusight_quantiles:
+#                a =  pd.DataFrame(fluforecasts_ti[:,:,:,:len(self.flusetup.locations)], 
+#                        columns= self.flusetup.locations, index=pd.date_range(self.flusetup.fluseason_startdate, self.flusetup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+#                a["US"] = pd.DataFrame(forecasts_national[sim_id],
+#                        columns= ["US"], index=pd.date_range(self.flusetup.fluseason_startdate, self.flusetup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+#
+#                a = a.reset_index().rename(columns={'index': 'target_end_date'})
+#                a = pd.melt(a,id_vars="target_end_date",var_name="location")
+#
+#                
+#                df_list.append(a)
+#
+#            df2 = pd.concat(df_list)
+#            df2["reference_date"] = forecast_date_str
+#            df2["target"] = "wk flu hosp rate change"
+#            df2["horizon"] = df["target_end_date"].map(target_dict)
+#            df2["output_type"] = "pmf"
+#            df2 = df2[["reference_date","target","horizon","target_end_date","location","output_type","output_type_id","value"]]
+
 
         df.to_csv(f"{directory}/{prefix}-{forecast_date_str}.csv", index=False)
 
