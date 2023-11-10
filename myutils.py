@@ -31,6 +31,11 @@ def num_to_groups(num, divisor):
         arr.append(remainder)
     return arr
 
+def get_folders_in_directory(directory_path):
+    import os
+    folders = [folder for folder in os.listdir(directory_path) if os.path.isdir(os.path.join(directory_path, folder))]
+    return folders
+
 
 def extract(a, t, x_shape):
     """
