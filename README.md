@@ -3,7 +3,7 @@
 * **affiliation** The University of North Carolina at Chapel Hill
 
 
-** The description below is outdated, please wait for the new one**
+**⚠️⚠️⚠️ The description below is now outdated, please wait for the new one (we use CoPaint instead of REpaint for inpainting) ⚠️⚠️⚠️**
 
 volta-gpu (16G) from longleaf don't have enough gpu-mem neede a100-gpu
 
