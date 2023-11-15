@@ -133,7 +133,8 @@ if __name__ == '__main__':
                             ddpm1.load_model_checkpoint(checkpoint_fn)
 
                             #fdates = pd.date_range("2022-11-14", "2023-05-15", freq="5W-MON")
-                            fdates = pd.DatetimeIndex(['2022-11-07','2022-11-14','2022-12-12','2023-01-09','2023-03-06'])
+                            #fdates = pd.DatetimeIndex(['2022-11-07','2022-11-14','2022-12-12','2023-01-09','2023-03-06'])
+                            fdates = pd.date_range("2022-10-12", "2023-05-15", freq="2W-MON")
                             for date in fdates:
                                 gt1 = ground_truth.GroundTruth(season_first_year="2022", 
                                                             data_date=datetime.datetime.today(), 
@@ -178,37 +179,38 @@ if __name__ == '__main__':
 
                                 # ****************** CoPaint ******************
                                 for conf_name, conf in epiframework.copaint_config_library(ddpm1.timesteps).items():
-                                    sampler = O_DDIMSampler(use_timesteps=np.arange(ddpm1.timesteps), 
-                                                        conf=conf,
-                                                        betas=ddpm1.betas, 
-                                                        model_mean_type=None,
-                                                        model_var_type=None,
-                                                        loss_type=None)
-                                    
-                                    a = sampler.p_sample_loop(model_fn=ddpm1.model, 
-                                                            shape=(batch_size, channels, image_size, image_size),
+                                    if "TT" in conf_name:
+                                        sampler = O_DDIMSampler(use_timesteps=np.arange(ddpm1.timesteps), 
                                                             conf=conf,
-                                                            model_kwargs={"gt": gt.repeat(batch_size, 1, 1, 1),
-                                                                            "gt_keep_mask":gt_keep_mask.repeat(batch_size, 1, 1, 1),
-                                                                            "mymodel":True, 
-                                                                        }
-                                                            )
-                                    fluforecasts = np.array(a['sample'].cpu())
+                                                            betas=ddpm1.betas, 
+                                                            model_mean_type=None,
+                                                            model_var_type=None,
+                                                            loss_type=None)
+                                        
+                                        a = sampler.p_sample_loop(model_fn=ddpm1.model, 
+                                                                shape=(batch_size, channels, image_size, image_size),
+                                                                conf=conf,
+                                                                model_kwargs={"gt": gt.repeat(batch_size, 1, 1, 1),
+                                                                                "gt_keep_mask":gt_keep_mask.repeat(batch_size, 1, 1, 1),
+                                                                                "mymodel":True, 
+                                                                            }
+                                                                )
+                                        fluforecasts = np.array(a['sample'].cpu())
 
-                                    fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
-                                    # compute the national quantiles, important as sum of quantiles >> quantiles of sum
-                                    forecasts_national = fluforecasts_ti.sum(axis=-1)
+                                        fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
+                                        # compute the national quantiles, important as sum of quantiles >> quantiles of sum
+                                        forecasts_national = fluforecasts_ti.sum(axis=-1)
 
-                                    forecast_fn = f"{model_str.split('.')[0]}::inpaint_CoPaint::conf_{conf_name}"
-                                    inpaint_folder = f"{model_folder}/forecasts/{forecast_fn}"
-                                    epiframework.create_folders(inpaint_folder)
+                                        forecast_fn = f"{model_str.split('.')[0]}::inpaint_CoPaint::conf_{conf_name}"
+                                        inpaint_folder = f"{model_folder}/forecasts_noTT/{forecast_fn}"
+                                        epiframework.create_folders(inpaint_folder)
 
-                                    gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
-                                                        forecasts_national=forecasts_national,
-                                                        directory=inpaint_folder,
-                                                        prefix=forecast_fn,
-                                                        forecast_date=date.date(),
-                                                        save_plot=True,
-                                                        nochecks=True)
+                                        gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
+                                                            forecasts_national=forecasts_national,
+                                                            directory=inpaint_folder,
+                                                            prefix=forecast_fn,
+                                                            forecast_date=date.date(),
+                                                            save_plot=True,
+                                                            nochecks=True)
 
                     this_spec_id += 1
