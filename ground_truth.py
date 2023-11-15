@@ -21,6 +21,8 @@ class GroundTruth():
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
+        self.channels = channels
+        self.image_size=image_size
 
 
         if not nogit: self.git_checkout_data_rev(target_date=None)
@@ -230,6 +232,7 @@ class GroundTruth():
                     }
 
         color_gt = "black"
+        color_past='grey'
 
         nplace_toplot = 51
         #nplace_toplot = 3 # less plots for faster iteration
@@ -238,6 +241,15 @@ class GroundTruth():
             plotrange=slice(None)
         else:
             plotrange=slice(self.inpaintfrom_idx,-1)
+
+
+        if self.season_first_year == "2023":
+            gt2022 = GroundTruth(season_first_year="2022", 
+                            data_date=datetime.datetime.today(),
+                            mask_date=datetime.datetime.today(),
+                            channels=self.channels,
+                            image_size=self.image_size
+                            )
 
         for plot_title, plot_spec in plot_specs.items():
             #print(f"doing {plot_title}...")
@@ -277,6 +289,9 @@ class GroundTruth():
     
                 # ground truth
                 ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1), color=color_gt, marker = '.', lw=.5, label='ground-truth')
+                if self.season_first_year == "2023":
+                    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashed', lw=.5, label='2022 ground-truth')
+
                 if iax==0:
                     ax.legend(fontsize=8)
     
@@ -321,6 +336,8 @@ class GroundTruth():
                             np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
                     # ground truth
                     ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+                    if self.season_first_year == "2023":
+                        ax.plot(gt2022.gt_xarr.data[0,:, ipl], color=color_past, ls='dashed', lw=.5)
 
                     ax.axvline(idx_now, c='k', lw=1, ls='-.')
                     if iax == 0:
@@ -356,7 +373,7 @@ class GroundTruth():
 
             a = a.reset_index().rename(columns={'index': 'target_end_date'})
             a = pd.melt(a,id_vars="target_end_date",var_name="location")
-            a["output_type_id"] = f"{qt}" #'{:<.3f}'.format(qt)
+            a["output_type_id"] = "{:.3f}".format(qt).rstrip('0').rstrip('.')# " #'{:<.3f}'.format(qt)
             
             df_list.append(a)
 
@@ -416,7 +433,7 @@ class GroundTruth():
 #            df2 = df2[["reference_date","target","horizon","target_end_date","location","output_type","output_type_id","value"]]
 
 
-        df.to_csv(f"{directory}/{prefix}-{forecast_date_str}.csv", index=False)
+        df.to_csv(f"{directory}/{forecast_date_str}-{prefix}.csv", index=False)
 
         if save_plot:
             self.plot_forecasts(fluforecasts_ti, forecasts_national, directory=directory, prefix=prefix, forecast_date=forecast_date)
