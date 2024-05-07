@@ -80,7 +80,7 @@ class FluSetup:
     @classmethod
     def from_flusight2023_24(
         cls,
-        csv_path="Flusight/FluSight-forecast-hub/auxiliary-data/locations.csv",
+        csv_path="Flusight/2023-2024/FluSight-forecast-hub/auxiliary-data/locations.csv",
         fluseason_startdate=pd.to_datetime("2020-12-15"),
         remove_territories=False,
     ):
@@ -307,14 +307,14 @@ def get_from_epidata(
             df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
     elif dataset == "flusight2022_23":
         df = pd.read_csv(
-            "Flusight/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv",
+            "Flusight/2022-2023/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv",
             parse_dates=True,
             index_col="date",
         )
         df["week_enddate"] = df.index
     elif dataset == "flusight2023_24":
         df = pd.read_csv(
-            "Flusight/FluSight-forecast-hub/target-data/target-hospital-admissions.csv",
+            "Flusight/2023/2024/FluSight-forecast-hub/target-data/target-hospital-admissions.csv",
             parse_dates=True,
             index_col="date",
         )
