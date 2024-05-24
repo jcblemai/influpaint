@@ -1,6 +1,6 @@
 Flusight/2023-24 Flusight-submissions/
 Flusight/Hub-fork-for-submissions/
-
+synthetic_dataset/model_output/
 *.out
 CoPaint4influpaint/
 helpers/delphi_epidata.py

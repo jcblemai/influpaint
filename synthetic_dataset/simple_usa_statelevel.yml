@@ -1,0 +1,120 @@
+name: USA_influpaint
+setup_name: USA
+start_date: 2023-08-01
+end_date: 2024-07-31
+nslots: 2
+
+subpop_setup:
+  geodata: model_input/data/geodata_2019_statelevel.csv
+  mobility: model_input/data/mobility_2011-2015_statelevel.csv
+  selected: ["06000","36000"]# ,"12000","48000","06000"
+  #selected: ["06000"]
+
+initial_conditions:
+  method: plugin
+  plugin_file_path: model_input/my_initial_conditions.py
+
+compartments:
+  infection_stage: ["S", "E", "I", "R"]
+
+seir:
+  integration:
+    method: rk4
+    dt: 2.0
+  parameters:
+    sigma:
+      value: 1 / 4
+    gamma:
+      value: 1 / 5
+    Ro:
+      value: .97
+  transitions:
+    - source: ["S"]
+      destination: ["E"]
+      rate: ["Ro * gamma"]
+      proportional_to: [["S"],["I"]]
+      proportion_exponent: ["1","1"]
+    - source: ["E"]
+      destination: ["I"]
+      rate: ["sigma"]
+      proportional_to: ["E"]
+      proportion_exponent: ["1"]
+    - source: ["I"]
+      destination: ["R"]
+      rate: ["gamma"]
+      proportional_to: ["I"]
+      proportion_exponent: ["1"]
+
+seir_modifiers:
+  scenarios:
+    - Ro_all
+  modifiers:
+    Ro_season:
+      method: SinglePeriodModifier
+      parameter: Ro
+      period_start_date: 2023-11-01
+      period_end_date: 2024-02-01
+      subpop: "all"
+      value:
+        distribution: truncnorm
+        mean: 1.3
+        sd: 1
+        a: 0.2
+        b: 3
+      perturbation:
+        distribution: truncnorm
+        mean: 0
+        sd: 0.025
+        a: -1
+        b: 1
+    Ro_sunny:
+      method: SinglePeriodModifier
+      parameter: Ro
+      period_start_date: 2024-02-01
+      period_end_date: 2024-04-01
+      subpop: "all"
+      value:
+        distribution: truncnorm
+        mean: 1.3
+        sd: 3
+        a: 0.1
+        b: 10
+      perturbation:
+        distribution: truncnorm
+        mean: 0
+        sd: 0.025
+        a: -1
+        b: 1
+    Ro_all:
+      method: StackedModifier
+      modifiers: ["Ro_season","Ro_sunny"]
+
+
+outcomes:
+  method: delayframe
+  outcomes:
+    incidCase: #incidence of detected cases
+      source:
+        incidence:
+          infection_stage: "I"
+      probability:
+        value: 0.5
+      delay:
+        value: 5
+    incidHosp: #incidence of hospitalizations
+      source:
+        incidence:
+          infection_stage: "I"
+      probability:
+        value: 0.05
+      delay:
+        value: 7
+      duration:
+        value: 10
+        name: currHosp # will track number of current hospitalizations (ie prevalence)
+    incidDeath: #incidence of deaths
+      source: incidHosp
+      probability:
+        value: 0.2
+      delay:
+        value: 14
