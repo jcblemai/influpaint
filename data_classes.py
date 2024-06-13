@@ -88,6 +88,18 @@ class FluDataset(torch.utils.data.Dataset):
             transform_inv=transform_inv,
             channels=channels,
         )
+    @classmethod
+    def from_synthetic_dataset(
+        cls, netcdf_file, transform=None, transform_inv=None, channels=3
+    ):
+        flu_dyn = xr.open_dataarray(netcdf_file)
+        flu_dyn = flu_dyn.data[:, :channels, :, :]  # Select the right number of channels
+        return cls(
+            flu_dyn=flu_dyn,
+            transform=transform,
+            transform_inv=transform_inv,
+            channels=channels,
+        )
 
     @classmethod
     def from_flusurvCSP(cls, flusetup, transform=None, transform_inv=None, channels=3):

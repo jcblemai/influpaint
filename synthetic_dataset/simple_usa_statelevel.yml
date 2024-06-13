@@ -7,7 +7,7 @@ nslots: 2
 subpop_setup:
   geodata: model_input/data/geodata_2019_statelevel.csv
   mobility: model_input/data/mobility_2011-2015_statelevel.csv
-  selected: ["06000","36000"]# ,"12000","48000","06000"
+  #selected: ["06000","36000"]# ,"12000","48000","06000"
   #selected: ["06000"]
 
 initial_conditions:
