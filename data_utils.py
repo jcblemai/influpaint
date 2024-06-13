@@ -8,7 +8,26 @@ import xarray as xr
 
 # locations, in the right order
 class FluSetup:
-    """ Contains locations and season info"""
+    """ 
+    A FluSetup object contains locations and season information.
+
+    Parameters:
+    - locations (pd.DataFrame): A DataFrame containing location information.
+    - fluseason_startdate (pd.Timestamp, optional): The start date of the flu season. Defaults to December 15, 2020.
+
+    Attributes:
+    - locations_df (pd.DataFrame): The DataFrame containing location information.
+    - locations (list): A list of location codes.
+    - fluseason_startdate (pd.Timestamp): The start date of the flu season.
+
+    Methods:
+    - get_location_name(location_code): Returns the location name for a given location code.
+    - get_dates(length): Returns a date range for a given length.
+    - from_flusight2022_23(csv_path, fluseason_startdate, remove_territories): Creates a FluSetup object from Flusight 2022-2023 data.
+    - from_flusight2023_24(csv_path, fluseason_startdate, remove_territories): Creates a FluSetup object from Flusight 2023-2024 data.
+    - get_fluseason_year(ts): Returns the flu season year for a given timestamp.
+    - get_fluseason_fraction(ts): Returns the fraction of the flu season for a given timestamp.
+    """
 
     def __init__(
         self, locations: pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-12-15")
@@ -44,7 +63,7 @@ class FluSetup:
     @classmethod
     def from_flusight2022_23(
         cls,
-        csv_path="Flusight/Flusight-forecast-data/data-locations/locations.csv",
+        csv_path="Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv",
         fluseason_startdate=pd.to_datetime("2020-12-15"),
         remove_territories=False,
     ):
@@ -80,7 +99,7 @@ class FluSetup:
     @classmethod
     def from_flusight2023_24(
         cls,
-        csv_path="Flusight/2023-2024/FluSight-forecast-hub/auxiliary-data/locations.csv",
+        csv_path="Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv",
         fluseason_startdate=pd.to_datetime("2020-12-15"),
         remove_territories=False,
     ):
@@ -307,14 +326,14 @@ def get_from_epidata(
             df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
     elif dataset == "flusight2022_23":
         df = pd.read_csv(
-            "Flusight/2022-2023/Flusight-forecast-data/data-truth/truth-Incident Hospitalizations.csv",
+            "Flusight/2022-2023/FluSight-forecast-hub-official/data-truth/truth-Incident Hospitalizations.csv",
             parse_dates=True,
             index_col="date",
         )
         df["week_enddate"] = df.index
     elif dataset == "flusight2023_24":
         df = pd.read_csv(
-            "Flusight/2023/2024/FluSight-forecast-hub/target-data/target-hospital-admissions.csv",
+            "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/target-data-archive/target-hospital-admissions_2024-04-27.csv",
             parse_dates=True,
             index_col="date",
         )
@@ -349,7 +368,7 @@ def get_from_epidata(
             right_on = "abbreviation"
         elif "flusight" in dataset:
             print(
-                "⚠️ ⚠️ ⚠️ Make sure ./update_data.sh is ran AND that the fork is updated"
+                "⚠️ ⚠️ ⚠️ If during season, make sure ./update_data.sh has been run"
             )
             df["location_tomerge"] = df["location"]
             right_on = "location_code"

@@ -1,7 +1,13 @@
-cd Flusight/Flusight-forecast-data
-#echo " ⚠️ ⚠️ ⚠️  Make sure fork jcblemai/Flusight-forecast-data is synced cdcepi/Flusight-forecast-data !!!"
+
+# 1. Update official flusight repositories
+cd Flusight/2022-2023/FluSight-forecast-hub-official
 git pull
-cd ../..
+cd ../../..
+
+cd Flusight/2023-2024/FluSight-forecast-hub-official
+git pull
+cd ../../..
+
 
 cd Flusight/flu-datasets/delphi-epidata
 git pull
@@ -11,7 +17,3 @@ cp Flusight/flu-datasets/delphi-epidata/src/client/delphi_epidata.py helpers/
 #cd Flusight/flu-datasets/synthetic/flu-scenario-modeling-hub/
 #git pull
 #cd ../../../..
-
-cd Flusight/FluSight-forecast-hub
-git pull
-cd ../..

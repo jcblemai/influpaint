@@ -160,9 +160,13 @@ Create synthetic data from the `dataset_builder.ipynb` notebook, and run the inp
 ```bash
 git clone https://github.com/andreas128/RePaint.git referenceimplementations/RePaint
 git clone https://github.com/openai/guided-diffusion.git referenceimplementations/guided-diffusion
-git clone https://github.com/jcblemai/Flusight-forecast-data.git Flusight/Flusight-forecast-data
-git clone https://github.com/cmu-delphi/delphi-epidata.git Flusight/flu-datasets/delphi-epidata
-git clone https://github.com/cdcepi/FluSight-forecast-hub Flusight/FluSight-forecast-hub
+git clone https://github.com/cmu-delphi/delphi-epidata.git Flusight/flu-datasets/delphi-epidata¨
+
+
+git clone https://github.com/jcblemai/Flusight-forecast-data.git Flusight/2022-2023/FluSight-forecast-hub-official
+git clone https://github.com/cdcepi/FluSight-forecast-hub Flusight/2023-2024/FluSight-forecast-hub-official
+```
+
 
 # WIS by Adrian Lison
 git clone https://github.com/adrian-lison/interval-scoring.git interval_scoring
