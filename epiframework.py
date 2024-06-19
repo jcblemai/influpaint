@@ -3,7 +3,7 @@ import itertools
 import datetime
 import numpy as np
 import pandas as pd
-import data_utils, data_classes
+import data_utils, training_datasets
 import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth
 
 import sys
@@ -227,9 +227,9 @@ def model_libary(image_size, channels, epoch, device, batch_size):
     return unet_spec
 def dataset_library(gt1, channels):
     dataset_spec = {
-            #"Fv":data_classes.FluDataset.from_fluview(flusetup=gt1.flusetup, download=False),
-            "R1Fv": data_classes.FluDataset.from_SMHR1_fluview(flusetup=gt1.flusetup, download=False),
-            "R1": data_classes.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
+            #"Fv":training_datasets.FluDataset.from_fluview(flusetup=gt1.flusetup, download=False),
+            "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(flusetup=gt1.flusetup, download=False),
+            "R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
     }
     return dataset_spec
 
@@ -250,45 +250,45 @@ def transform_library(scaling_per_channel):
     transform_enrich = {
         "No":transforms.Compose([]),
         "PoisPadScale":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
-                transforms.Lambda(lambda t: data_classes.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
-                transforms.Lambda(lambda t: data_classes.transform_randomscale(t, min=.1, max=1.9)),
+                transforms.Lambda(lambda t: training_datasets.transform_poisson(t)),
+                transforms.Lambda(lambda t: training_datasets.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
+                transforms.Lambda(lambda t: training_datasets.transform_randomscale(t, min=.1, max=1.9)),
         ]),
         "PoisPadScaleSmall":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
-                transforms.Lambda(lambda t: data_classes.transform_random_padintime(t, min_shift = -4, max_shift = 4)),
-                transforms.Lambda(lambda t: data_classes.transform_randomscale(t, min=.7, max=1.3)),
+                transforms.Lambda(lambda t: training_datasets.transform_poisson(t)),
+                transforms.Lambda(lambda t: training_datasets.transform_random_padintime(t, min_shift = -4, max_shift = 4)),
+                transforms.Lambda(lambda t: training_datasets.transform_randomscale(t, min=.7, max=1.3)),
         ]),
         "Pois":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_poisson(t)),
+                transforms.Lambda(lambda t: training_datasets.transform_poisson(t)),
         ])
     }
 
-#                         transforms.Lambda(lambda t: data_classes.transform_skewednoise(t, scale=.4, a=-1.8))
+#                         transforms.Lambda(lambda t: training_datasets.transform_skewednoise(t, scale=.4, a=-1.8))
 
     transforms_spec = {
         # No scaling (linear scale)
         "Lins":{
             "reg":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 2))  ,
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale(t, scale = 2))  ,
         ]),
             "inv":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 2)),
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale_inv(t, scale = 2)),
         ][::-1])  
         },
         # sqrt scale
         "Sqrt":{
             "reg":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
-                data_classes.transform_sqrt,
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale(t, scale = 2))  ,
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                training_datasets.transform_sqrt,
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale(t, scale = 2))  ,
         ]),
             "inv":transforms.Compose([
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
-                data_classes.transform_sqrt_inv,
-                transforms.Lambda(lambda t: data_classes.transform_channelwisescale_inv(t, scale = 2)),
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                training_datasets.transform_sqrt_inv,
+                transforms.Lambda(lambda t: training_datasets.transform_channelwisescale_inv(t, scale = 2)),
         ][::-1])  
             },
         }

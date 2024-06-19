@@ -238,9 +238,7 @@ def get_from_epidata(
     if clean:
         # remove 
         df = clean_dataset(df, season_setup)
-       
 
-    
 
     return df
 

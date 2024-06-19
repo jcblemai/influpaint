@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-import data_utils, data_classes
+import data_utils, training_datasets
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import datetime

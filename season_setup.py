@@ -19,8 +19,8 @@ class SeasonSetup:
     Methods:
     - get_location_name(location_code): Returns the location name for a given location code.
     - get_dates(length): Returns a date range for a given length.
-    - from_flusight2022_23(location_filepath, fluseason_startdate, remove_territories): Creates a SeasonSetup object from Flusight 2022-2023 repository.
-    - from_flusight2023_24(location_filepath, fluseason_startdate, remove_territories): Creates a SeasonSetup object from Flusight 2023-2024 repository.
+    - from_flusight(location_filepath, fluseason_startdate, remove_territories): Creates a SeasonSetup object from Flusight 2022-2023 repository 
+            (because 2022-2023 contains virgin islands, 2023-2024 does not)
     - get_fluseason_year(ts): Returns the flu season year for a given timestamp.
     - get_fluseason_fraction(ts): Returns the fraction of the flu season for a given timestamp.
     """
