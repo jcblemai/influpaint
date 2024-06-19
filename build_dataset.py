@@ -181,7 +181,14 @@ def get_from_epidata(
             df["location_tomerge"] = df["location_tomerge"].str.replace(
                 "NY_rochester", "NY"
             )
+            # sum the values for the different regions of NY, selecting only new york:
+            df_ny = df[df["location_tomerge"] == "NY"]
+            df_ny = df_ny.groupby(["week_enddate", "location_tomerge"]).sum(numeric_only=True).reset_index()
+            df = df[df["location_tomerge"] != "NY"]
+            df = pd.concat([df, df_ny])
+            print(" >> summing NY_albany and NY_rochester into NY")
             right_on = "abbreviation"
+        
         elif dataset == "fluview":
             df["location_tomerge"] = df["region"].str.upper()
             df["location_tomerge"] = df["location_tomerge"].str.replace(
@@ -191,6 +198,9 @@ def get_from_epidata(
                 "ny_minus_jfk".upper(), "NY"
             )
             right_on = "abbreviation"
+            
+
+
         elif "flusight" in dataset:
             print(
                 "⚠️ ⚠️ ⚠️ If during season, make sure ./update_data.sh has been run"
@@ -222,13 +232,15 @@ def get_from_epidata(
     # get the flu season year and it's fraction elapsed
     df["fluseason"] = df["week_enddate"].apply(season_setup.get_fluseason_year)
     df["fluseason_fraction"] = df["week_enddate"].apply(season_setup.get_fluseason_fraction)
-
+    print(f"RAW Dataset {dataset} has {len(df)} data points, with {len(df['location_code'].unique())} locations,"
+            f"and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
     # select only the columns we need
     if clean:
         # remove 
         df = clean_dataset(df, season_setup)
+       
 
-    print(f"Dataset {dataset} has {len(df)} data points, with {len(df['location_code'].unique())} locations, and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
+    
 
     return df
 
@@ -239,6 +251,8 @@ def clean_dataset(df, season_setup):
     df = df[df["location_code"].isin(season_setup.locations)]
     # remove NaNs
     df = df.dropna(subset=["value"])
+    print(f" >>> after clean: Dataset {len(df)} data points, with {len(df['location_code'].unique())} locations,"
+            f"and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
     return df
 
 
@@ -254,7 +268,7 @@ def get_dataset_all_locations(dataset):
         import importlib
 
         fluview_locations_m = importlib.import_module(
-            "datasets.delphi-epidata.src.acquisition.fluview.fluview_locations"
+            "Flusight.flu-datasets.delphi-epidata.src.acquisition.fluview.fluview_locations"
         )
         fll_dict = fluview_locations_m.cdc_to_delphi
         locations = []
