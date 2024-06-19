@@ -48,6 +48,7 @@ def dataframe_to_xarray(
         ]  # make sure order is right w.r.t flusight_locations
         places = season_setup.locations_df["location_code"]
 
+
     df_xarr = xr.DataArray(
         np.array([df_piv.to_numpy()]),
         name=xarray_name,

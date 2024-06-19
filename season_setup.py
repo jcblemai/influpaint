@@ -83,6 +83,13 @@ class SeasonSetup:
 
     def get_fluseason_year(self, ts):
         return get_season_year(ts, self.fluseason_startdate)
+    
+    def get_dates(self):
+        return pd.date_range(
+            start=self.fluseason_startdate,
+            end=self.fluseason_startdate + datetime.timedelta(years=1),
+            freq="W-SAT",
+        )
 
     def get_fluseason_fraction(self, ts):
         return get_season_fraction(ts, self.fluseason_startdate)
