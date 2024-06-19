@@ -94,28 +94,6 @@ def dataframe_to_arraylist(
     return samples
 
 
-def get_all_locations(dataset):
-    if dataset == "flusurv":
-        locations_fn = (
-            "Flusight/flu-datasets/delphi-epidata/labels/flusurv_locations.txt"
-        )
-        locations = pd.read_csv(
-            locations_fn, sep="\t", header=None, names=["location"]
-        )["location"].to_list()
-    elif dataset == "fluview":
-        import importlib
-
-        fluview_locations_m = importlib.import_module(
-            "datasets.delphi-epidata.src.acquisition.fluview.fluview_locations"
-        )
-        fll_dict = fluview_locations_m.cdc_to_delphi
-        locations = []
-        for region_type in fll_dict.keys():
-            for region_name, flloc in fll_dict[region_type].items():
-                locations.append(flloc)
-    return locations
-
-
 def get_from_epidata(
     dataset,
     season_setup: SeasonSetup = None,
@@ -123,11 +101,11 @@ def get_from_epidata(
     value_col=None,
     write=True,
     download=True,
+    clean = True
 ):
     """ 
     Read a dataset from epidata. Each dataset is a dataframe with columns:
-    - 'week_enddate' (datetime)
-    - 'location' (str) original location name
+    - 'week_enddate' (datetime)  the date of the saturday at the end of the week
     - 'location_code' (str) location name in the format used by the flusight data
     - 'value' (float) the value of interest
     - 'fluseason' (int) the flu season (e.g. 2019)
@@ -139,16 +117,16 @@ def get_from_epidata(
             # by location otherwise queries is too big
             df_list = []
             if locations == "all":
-                locations = get_all_locations(dataset=dataset)
+                locations = get_dataset_all_locations(dataset=dataset)
 
             for location in locations:
                 if dataset == "flusurv":
                     res = Epidata.flusurv(
-                        location, [Epidata.range(190001, 202251)]
+                        location, [Epidata.range(190001, 202451)]
                     )  # large range to get all data
                 elif dataset == "fluview":
                     res = Epidata.fluview(
-                        location, [Epidata.range(190001, 202251)]
+                        location, [Epidata.range(190001, 202451)]
                     )  # large range to get all data
                 if res["result"] == 1:
                     flu_data_loc = pd.json_normalize(res["epidata"])
@@ -169,7 +147,6 @@ def get_from_epidata(
                     ).enddate()
                 )
             )
-
         else:
             df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
     elif dataset == "flusight2022_23":
@@ -219,11 +196,12 @@ def get_from_epidata(
                 "⚠️ ⚠️ ⚠️ If during season, make sure ./update_data.sh has been run"
             )
             df["location_tomerge"] = df["location"]
+            df = df.drop(columns=["location_name"])
             right_on = "location_code"
 
         df = pd.merge(
             df,
-            season_setup.locations_df[["location_name", "location_code", "abbreviation"]],
+            season_setup.locations_df[["location_code", "location_name", "abbreviation"]],
             left_on="location_tomerge",
             right_on=right_on,
             how="outer",
@@ -245,4 +223,42 @@ def get_from_epidata(
     df["fluseason"] = df["week_enddate"].apply(season_setup.get_fluseason_year)
     df["fluseason_fraction"] = df["week_enddate"].apply(season_setup.get_fluseason_fraction)
 
+    # select only the columns we need
+    if clean:
+        # remove 
+        df = clean_dataset(df, season_setup)
+
+    print(f"Dataset {dataset} has {len(df)} data points, with {len(df['location_code'].unique())} locations, and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
+
     return df
+
+
+def clean_dataset(df, season_setup):
+    df = df[["week_enddate", "location_code", "value", "fluseason", "fluseason_fraction"]]
+    # remove locations that are not in the season_setup
+    df = df[df["location_code"].isin(season_setup.locations)]
+    # remove NaNs
+    df = df.dropna(subset=["value"])
+    return df
+
+
+def get_dataset_all_locations(dataset):
+    if dataset == "flusurv":
+        locations_fn = (
+            "Flusight/flu-datasets/delphi-epidata/labels/flusurv_locations.txt"
+        )
+        locations = pd.read_csv(
+            locations_fn, sep="\t", header=None, names=["location"]
+        )["location"].to_list()
+    elif dataset == "fluview":
+        import importlib
+
+        fluview_locations_m = importlib.import_module(
+            "datasets.delphi-epidata.src.acquisition.fluview.fluview_locations"
+        )
+        fll_dict = fluview_locations_m.cdc_to_delphi
+        locations = []
+        for region_type in fll_dict.keys():
+            for region_name, flloc in fll_dict[region_type].items():
+                locations.append(flloc)
+    return locations

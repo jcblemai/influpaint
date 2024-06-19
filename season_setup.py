@@ -54,6 +54,8 @@ class SeasonSetup:
         if location_filepath is None:
             #location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
             location_filepath = "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
+            # 2022-2023 contains virgin islands, 2023-2024 does not. THourgh then population are not up to date.
+            location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv" 
 
         flusight_locations = pd.read_csv(
             location_filepath,
@@ -66,27 +68,13 @@ class SeasonSetup:
             "location"
         ]  # "location" collides with datasets column name
         flusight_locations.drop(columns=["location"], inplace=True)
+        to_remove = []
         if remove_territories:
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "72"
-            ]
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "78"
-            ]
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "60"
-            ]
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "66"
-            ]
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "69"
-            ]
-
+            to_remove += ["72", "78", "60", "66", "69"]
         if remove_us:
-            flusight_locations = flusight_locations[
-                flusight_locations["location_code"] != "US"
-            ]
+            to_remove += ["US"]
+
+        flusight_locations = remove_locations(location_list=to_remove, locations_df=flusight_locations)
 
         flusight_locations = flusight_locations[["abbreviation", "location_name", "population", "location_code", "geoid"]]
         return cls(
@@ -114,6 +102,8 @@ class SeasonSetup:
         )
         return dr
 
+def remove_locations(location_list, locations_df):
+    return locations_df[~locations_df["location_code"].isin(location_list)]
 
 def get_season_year(ts, start_date):
     if ts.dayofyear >= start_date.dayofyear:
@@ -127,3 +117,5 @@ def get_season_fraction(ts, start_date):
         return (ts.dayofyear - start_date.dayofyear) / 365
     else:
         return ((ts.dayofyear + 365) - start_date.dayofyear) / 365
+
+
