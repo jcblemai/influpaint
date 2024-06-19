@@ -7,7 +7,7 @@ import data_utils
 
 class FluDataset(torch.utils.data.Dataset):
     """
-    transform_enrich are for enriching the dataset and are not inverted (thus most have a mean effect of zero).
+    transform_enrich are for enriching the dataset and are not inverted (thus must have a mean effect of zero).
     """
     def __init__(self, flu_dyn, transform=None, transform_enrich=None, transform_inv=None, channels=3):
         """
@@ -30,7 +30,7 @@ class FluDataset(torch.utils.data.Dataset):
 
     @classmethod
     def from_SMHR1_fluview(
-        cls, flusetup, download=False, transform=None, transform_inv=None, channels=3
+        cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
     ):
         netcdf_file = (
             "Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc"
@@ -47,10 +47,10 @@ class FluDataset(torch.utils.data.Dataset):
         flu_dyn1 = flu_dyn.data
 
         fluview = data_utils.get_from_epidata(
-            dataset="fluview", flusetup=flusetup, download=download, write=False
+            dataset="fluview", season_setup=season_setup, download=download, write=False
         )
-        df = fluview[fluview["location_code"].isin(flusetup.locations)]
-        flu_dyn2 = np.array(data_utils.dataframe_to_arraylist(df=df, flusetup=flusetup))
+        df = fluview[fluview["location_code"].isin(season_setup.locations)]
+        flu_dyn2 = np.array(data_utils.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         flu_dyn2 = flu_dyn2.repeat(90, axis=0)
         print(
@@ -102,22 +102,22 @@ class FluDataset(torch.utils.data.Dataset):
         )
 
     @classmethod
-    def from_flusurvCSP(cls, flusetup, transform=None, transform_inv=None, channels=3):
+    def from_flusurvCSP(cls, season_setup, transform=None, transform_inv=None, channels=3):
         csp_flusurv = pd.read_csv(
             "Flusight/flu-datasets/flu_surv_cspGT.csv", parse_dates=["date"]
         )
         df = pd.merge(
             csp_flusurv,
-            flusetup.locations_df,
+            season_setup.locations_df,
             left_on="FIPS",
             right_on="abbreviation",
             how="left",
         )
-        df["fluseason"] = df["date"].apply(flusetup.get_fluseason_year)
-        df["fluseason_fraction"] = df["date"].apply(flusetup.get_fluseason_fraction)
+        df["fluseason"] = df["date"].apply(season_setup.get_fluseason_year)
+        df["fluseason_fraction"] = df["date"].apply(season_setup.get_fluseason_fraction)
         flu_dyn = np.array(
             data_utils.dataframe_to_arraylist(
-                df, flusetup=flusetup, value_column="incidH"
+                df, season_setup=season_setup, value_column="incidH"
             )
         )
         return cls(
@@ -129,13 +129,13 @@ class FluDataset(torch.utils.data.Dataset):
 
     @classmethod
     def from_fluview(
-        cls, flusetup, download=False, transform=None, transform_inv=None, channels=3
+        cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
     ):
         fluview = data_utils.get_from_epidata(
-            dataset="fluview", flusetup=flusetup, download=download, write=False
+            dataset="fluview", season_setup=season_setup, download=download, write=False
         )
-        df = fluview[fluview["location_code"].isin(flusetup.locations)]
-        flu_dyn = np.array(data_utils.dataframe_to_arraylist(df=df, flusetup=flusetup))
+        df = fluview[fluview["location_code"].isin(season_setup.locations)]
+        flu_dyn = np.array(data_utils.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         return cls(
             flu_dyn=flu_dyn,

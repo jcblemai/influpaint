@@ -167,6 +167,7 @@ git clone https://github.com/cmu-delphi/delphi-epidata.git Flusight/flu-datasets
 
 git clone https://github.com/jcblemai/Flusight-forecast-data.git Flusight/2022-2023/FluSight-forecast-hub-official
 git clone https://github.com/cdcepi/FluSight-forecast-hub Flusight/2023-2024/FluSight-forecast-hub-official
+git clone https://github.com/midas-network/flu-scenario-modeling-hub.git Flusight/Flu-SMH
 ```
 
 
