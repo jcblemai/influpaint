@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import xarray as xr
-import data_utils
+import build_dataset
 
 
 class FluDataset(torch.utils.data.Dataset):
@@ -46,11 +46,11 @@ class FluDataset(torch.utils.data.Dataset):
             )
         flu_dyn1 = flu_dyn.data
 
-        fluview = data_utils.get_from_epidata(
+        fluview = build_dataset.get_from_epidata(
             dataset="fluview", season_setup=season_setup, download=download, write=False
         )
         df = fluview[fluview["location_code"].isin(season_setup.locations)]
-        flu_dyn2 = np.array(data_utils.dataframe_to_arraylist(df=df, season_setup=season_setup))
+        flu_dyn2 = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         flu_dyn2 = flu_dyn2.repeat(90, axis=0)
         print(
@@ -116,7 +116,7 @@ class FluDataset(torch.utils.data.Dataset):
         df["fluseason"] = df["date"].apply(season_setup.get_fluseason_year)
         df["fluseason_fraction"] = df["date"].apply(season_setup.get_fluseason_fraction)
         flu_dyn = np.array(
-            data_utils.dataframe_to_arraylist(
+            build_dataset.dataframe_to_arraylist(
                 df, season_setup=season_setup, value_column="incidH"
             )
         )
@@ -131,11 +131,11 @@ class FluDataset(torch.utils.data.Dataset):
     def from_fluview(
         cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
     ):
-        fluview = data_utils.get_from_epidata(
+        fluview = build_dataset.get_from_epidata(
             dataset="fluview", season_setup=season_setup, download=download, write=False
         )
         df = fluview[fluview["location_code"].isin(season_setup.locations)]
-        flu_dyn = np.array(data_utils.dataframe_to_arraylist(df=df, season_setup=season_setup))
+        flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         return cls(
             flu_dyn=flu_dyn,

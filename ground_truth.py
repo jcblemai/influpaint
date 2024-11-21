@@ -13,7 +13,7 @@ import xarray as xr
 
 import datetime
 
-import myutils, data_utils
+import myutils, build_dataset
 
 
 class GroundTruth():
@@ -28,25 +28,25 @@ class GroundTruth():
         if not nogit: self.git_checkout_data_rev(target_date=None)
 
         if self.season_first_year == "2023":
-            self.flusetup = data_utils.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2023-07-24"), remove_territories=True)
-            flusight = data_utils.get_from_epidata(dataset="flusight2023_24", flusetup=self.flusetup, write=False)
+            self.flusetup = build_dataset.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2023-07-24"), remove_territories=True)
+            flusight = build_dataset.get_from_epidata(dataset="flusight2023_24", flusetup=self.flusetup, write=False)
             gt_df_final = flusight[flusight["fluseason"] == 2023]
             if from_final_data:
                 gt_df = gt_df_final.copy()
             else:
                 if not nogit: self.git_checkout_data_rev(target_date=data_date)
-                flusight = data_utils.get_from_epidata(dataset="flusight2023_24", flusetup=self.flusetup, write=False)
+                flusight = build_dataset.get_from_epidata(dataset="flusight2023_24", flusetup=self.flusetup, write=False)
                 gt_df = flusight[flusight["fluseason"] == 2023]   
                 if not nogit: self.git_checkout_data_rev(target_date=None)
         elif self.season_first_year == "2022":
-            self.flusetup = data_utils.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2022-07-24"), remove_territories=True)
-            flusight = data_utils.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
+            self.flusetup = build_dataset.FluSetup.from_flusight2023_24(fluseason_startdate=pd.to_datetime("2022-07-24"), remove_territories=True)
+            flusight = build_dataset.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
             gt_df_final = flusight[flusight["fluseason"] == 2022]
             if from_final_data:
                 gt_df = gt_df_final.copy()
             else:
                 if not nogit: self.git_checkout_data_rev(target_date=data_date)
-                flusight = data_utils.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
+                flusight = build_dataset.get_from_epidata(dataset="flusight2022_23", flusetup=self.flusetup, write=False)
                 gt_df = flusight[flusight["fluseason"] == 2022]
                 if not nogit: self.git_checkout_data_rev(target_date=None)  
         else:
@@ -56,11 +56,11 @@ class GroundTruth():
         self.gt_df_final = gt_df_final[gt_df_final["location_code"].isin(self.flusetup.locations)]
 
 
-        self.gt_xarr = data_utils.dataframe_to_xarray(self.gt_df, flusetup=self.flusetup, 
+        self.gt_xarr = build_dataset.dataframe_to_xarray(self.gt_df, flusetup=self.flusetup, 
             xarray_name = "gt_flusight_incidHosp", 
             xarrax_features = "incidHosp")
         
-        self.gt_final_xarr = data_utils.dataframe_to_xarray(self.gt_df_final, flusetup=self.flusetup, 
+        self.gt_final_xarr = build_dataset.dataframe_to_xarray(self.gt_df_final, flusetup=self.flusetup, 
             xarray_name = "gt_flusight_incidHos_final", 
             xarrax_features = "incidHosp")
 
