@@ -3,7 +3,6 @@ import numpy as np
 from helpers.delphi_epidata import Epidata
 from season_setup import SeasonSetup
 import xarray as xr
-import epiweeks
 
 def padto64x64(x: np.ndarray) -> np.ndarray:
     return np.pad(
@@ -115,6 +114,7 @@ def get_from_epidata(
 
     if dataset == "flusurv" or dataset == "fluview":
         if download:
+            import epiweeks
             # by location otherwise queries is too big
             df_list = []
             if locations == "all":

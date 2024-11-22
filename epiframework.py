@@ -244,51 +244,52 @@ def create_folders(path):
 
 def transform_library(scaling_per_channel):
     from torchvision import transforms
+    import epitransforms
 
     print(scaling_per_channel)
 
     transform_enrich = {
         "No":transforms.Compose([]),
         "PoisPadScale":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_poisson(t)),
-                transforms.Lambda(lambda t: transforms.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
-                transforms.Lambda(lambda t: transforms.transform_randomscale(t, min=.1, max=1.9)),
+                transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
+                transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
+                transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.1, max=1.9)),
         ]),
         "PoisPadScaleSmall":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_poisson(t)),
-                transforms.Lambda(lambda t: transforms.transform_random_padintime(t, min_shift = -4, max_shift = 4)),
-                transforms.Lambda(lambda t: transforms.transform_randomscale(t, min=.7, max=1.3)),
+                transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
+                transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift = -4, max_shift = 4)),
+                transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.7, max=1.3)),
         ]),
         "Pois":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_poisson(t)),
+                transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
         ])
     }
 
-#                         transforms.Lambda(lambda t: transforms.transform_skewednoise(t, scale=.4, a=-1.8))
+#                         transforms.Lambda(lambda t: epitransforms.transform_skewednoise(t, scale=.4, a=-1.8))
 
     transforms_spec = {
         # No scaling (linear scale)
         "Lins":{
             "reg":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale(t, scale = 2))  ,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 2))  ,
         ]),
             "inv":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale_inv(t, scale = 2)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 2)),
         ][::-1])  
         },
         # sqrt scale
         "Sqrt":{
             "reg":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
-                transforms.transform_sqrt,
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale(t, scale = 2))  ,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
+                epitransforms.transform_sqrt,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 2))  ,
         ]),
             "inv":transforms.Compose([
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
-                transforms.transform_sqrt_inv,
-                transforms.Lambda(lambda t: transforms.transform_channelwisescale_inv(t, scale = 2)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
+                epitransforms.transform_sqrt_inv,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 2)),
         ][::-1])  
             },
         }

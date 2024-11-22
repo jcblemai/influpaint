@@ -28,7 +28,7 @@ class GroundTruth():
 
         if not nogit: self.git_checkout_data_rev(target_date=None)
 
-        self.season_setup = SeasonSetup.from_flusight(season_first_year=self.season_first_year, remove_territories=True)
+        self.season_setup = SeasonSetup.from_flusight(season_first_year=self.season_first_year, remove_territories=True, remove_us=True)
 
         flusight = build_dataset.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
         gt_df_final = flusight[flusight["fluseason"] == int(self.season_first_year)]
