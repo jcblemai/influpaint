@@ -227,8 +227,8 @@ def model_libary(image_size, channels, epoch, device, batch_size):
     return unet_spec
 def dataset_library(gt1, channels):
     dataset_spec = {
-            #"Fv":training_datasets.FluDataset.from_fluview(flusetup=gt1.flusetup, download=False),
-            "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(flusetup=gt1.flusetup, download=False),
+            #"Fv":training_datasets.FluDataset.from_fluview(season_setup=gt1.season_setup, download=False),
+            "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=gt1.season_setup, download=False),
             "R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
     }
     return dataset_spec

@@ -150,16 +150,23 @@ def get_from_epidata(
             )
         else:
             df = pd.read_csv(f"Flusight/flu-datasets/{dataset}.csv")
-    elif dataset == "flusight2022_23":
+    elif dataset == "flusight2022":
         df = pd.read_csv(
             "Flusight/2022-2023/FluSight-forecast-hub-official/data-truth/truth-Incident Hospitalizations.csv",
             parse_dates=True,
             index_col="date",
         )
         df["week_enddate"] = df.index
-    elif dataset == "flusight2023_24":
+    elif dataset == "flusight2023":
         df = pd.read_csv(
             "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/target-data-archive/target-hospital-admissions_2024-04-27.csv",
+            parse_dates=True,
+            index_col="date",
+        )
+        df["week_enddate"] = df.index
+    elif dataset == "flusight2024":
+        df = pd.read_csv(
+            "Flusight/2024-2025/FluSight-forecast-hub-official/target-data/target-hospital-admissions.csv",
             parse_dates=True,
             index_col="date",
         )

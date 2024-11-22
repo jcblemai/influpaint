@@ -47,15 +47,27 @@ class SeasonSetup:
     def from_flusight(
         cls,
         location_filepath=None,
-        fluseason_startdate=pd.to_datetime("2020-07-15"),
+        season_first_year=None,
+        fluseason_startdate=None,
         remove_territories=False,
         remove_us=False,
     ):
         if location_filepath is None:
-            #location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
-            location_filepath = "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
-            # 2022-2023 contains virgin islands, 2023-2024 does not. THourgh then population are not up to date.
-            location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv" 
+            if season_first_year == "2022":
+                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
+            elif season_first_year == "2023":
+                location_filepath = "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
+            elif season_first_year == "2024":
+                location_filepath = "Flusight/2024-2025/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
+            elif season_first_year is None:
+                print("No season nor file provided, loading 2022-2023 locations information")
+                # 2022-2023 contains virgin islands, 2023-2024 does not. THourgh then population are not up to date.
+                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv"
+            else:
+                raise ValueError(f"unreconized season {season_first_year}")
+        
+        if fluseason_startdate is None:
+            fluseason_startdate = pd.to_datetime(f"{season_first_year}-07-15")
 
         flusight_locations = pd.read_csv(
             location_filepath,
