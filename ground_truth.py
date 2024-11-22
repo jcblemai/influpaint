@@ -114,6 +114,15 @@ class GroundTruth():
             ax = axes.flat[idx+1]
             ax.plot(gt_piv[pl], lw=2, color='k')
             ax.plot(gt_piv_final[pl], lw=1, color='r', ls='-.')
+            na_mask = gt_piv.isna()
+            ax.plot(gt_piv[na_mask].index,
+                    gt_piv[na_mask],
+                    marker='o', 
+                    color="pink",
+                    fillstyle='full', 
+                    markeredgecolor='red', 
+                    markersize=5,
+                    markeredgewidth=1)
             ax.set_title(self.season_setup.get_location_name(pl))
             #ax.grid()
             ax.set_ylim(0)
@@ -126,20 +135,25 @@ class GroundTruth():
     def plot_mask(self):
         # check that it stitch
         fig, axes = plt.subplots(1, 4, figsize=(8,8), dpi=200, sharex=True, sharey=True)
-        axes[0].imshow(self.gt_xarr.data[0], cmap='Greys')
+        import matplotlib as mpl
+        cmap_greys = mpl.colormaps.get_cmap('Greys')
+        cmap_rainbow = mpl.colormaps.get_cmap("rainbow")
+        cmap_greys.set_bad(color='red')
+        cmap_rainbow.set_bad(color='red')
+        axes[0].imshow(self.gt_xarr.data[0], cmap=cmap_greys)
         axes[0].set_title("Current data rev", fontsize=8)
 
-        axes[1].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[1].imshow(self.gt_keep_mask[0], alpha=.3, cmap = cmap_rainbow)
         axes[1].set_title("Inpainting mask", fontsize=8)
         
 
 
-        axes[2].imshow(self.gt_xarr.data[0], cmap='Greys')
-        axes[2].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[2].imshow(self.gt_xarr.data[0], cmap=cmap_greys)
+        axes[2].imshow(self.gt_keep_mask[0], alpha=.3, cmap = cmap_rainbow)
         axes[3].set_title("Current data rev", fontsize=8)
 
-        axes[3].imshow(self.gt_final_xarr.data[0], cmap='Greys')
-        axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = "rainbow")
+        axes[3].imshow(self.gt_final_xarr.data[0], cmap=cmap_greys)
+        axes[3].imshow(self.gt_keep_mask[0], alpha=.3, cmap = cmap_rainbow)
         axes[3].set_title("Final data", fontsize=8)
 
     def export_forecasts(self, fluforecasts_ti, forecasts_national, directory=".", prefix="", forecast_date=None, save_plot=True, nochecks=False):
@@ -235,13 +249,20 @@ class GroundTruth():
             plotrange=slice(self.inpaintfrom_idx,-1)
 
 
-        if self.season_first_year == "2023":
+        if self.season_first_year == "2023" or self.season_first_year == "2024":
             gt2022 = GroundTruth(season_first_year="2022", 
-                            data_date=datetime.datetime.today(),
+                            data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
                             mask_date=datetime.datetime.today(),
                             channels=self.channels,
                             image_size=self.image_size
                             )
+        if self.season_first_year == "2024":
+            gt2023 = GroundTruth(season_first_year="2023", 
+                data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
+                mask_date=datetime.datetime.today(),
+                channels=self.channels,
+                image_size=self.image_size
+                )
 
         for plot_title, plot_spec in plot_specs.items():
             #print(f"doing {plot_title}...")
@@ -281,8 +302,10 @@ class GroundTruth():
     
                 # ground truth
                 ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1), color=color_gt, marker = '.', lw=.5, label='ground-truth')
-                if self.season_first_year == "2023":
+                if self.season_first_year == "2023" or self.season_first_year == "2024":
                     ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashed', lw=.5, label='2022 ground-truth')
+                if self.season_first_year == "2024":
+                    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashdot', lw=.5, label='2023 ground-truth')
 
                 if iax==0:
                     ax.legend(fontsize=8)
@@ -328,8 +351,10 @@ class GroundTruth():
                             np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
                     # ground truth
                     ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
-                    if self.season_first_year == "2023":
+                    if self.season_first_year == "2023" or self.season_first_year == "2024":
                         ax.plot(gt2022.gt_xarr.data[0,:, ipl], color=color_past, ls='dashed', lw=.5)
+                    if self.season_first_year == "2024":
+                        ax.plot(gt2023.gt_xarr.data[0,:, ipl], color=color_past, ls='dashdot', lw=.5)
 
                     ax.axvline(idx_now, c='k', lw=1, ls='-.')
                     if iax == 0:

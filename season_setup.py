@@ -54,7 +54,7 @@ class SeasonSetup:
     ):
         if location_filepath is None:
             if season_first_year == "2022":
-                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
+                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv"
             elif season_first_year == "2023":
                 location_filepath = "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
             elif season_first_year == "2024":
