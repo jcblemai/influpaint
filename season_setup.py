@@ -1,5 +1,6 @@
 import datetime
 import pandas as pd
+import math
 
 
 # locations, in the right order
@@ -99,7 +100,8 @@ class SeasonSetup:
         return get_season_fraction(ts, self.fluseason_startdate)
     
     def get_fluseason_week(self, ts):
-        return get_season_week(ts, start_month=self.fluseason_startdate.month, start_day=self.fluseason_startdate.day)
+        return get_season_week(ts, start_month=self.fluseason_startdate.month, 
+                                   start_day=self.fluseason_startdate.day)
     
     def get_dates(self):
         return pd.date_range(
@@ -140,28 +142,33 @@ def get_season_fraction(ts, start_date):
         return ((ts.dayofyear + 365) - start_date.dayofyear) / 365
     
 
-def get_season_week(input_date, start_month=8, start_day=1):
+def get_season_week(ts, start_month=8, start_day=1):
     """
     Calculate the season week (1-53) based on days elapsed since August 1st
     TODO: this may be improved by making sure we use the closest date.
 
     Args:
-        input_date (date or datetime): Date to convert
+        ts (date or datetime): Date to convert
 
     Returns:
         int: Season week number (1-53)
     """
-    import math
 
     # Convert to date if datetime is passed
-    if isinstance(input_date, datetime.datetime):
-        input_date = input_date.date()
+    if isinstance(ts, datetime.datetime):
+        ts = ts.date()
 
-    # Set the reference date for the season start
-    season_start = datetime.date(input_date.year if input_date.month >= start_month else input_date.year - 1, start_month, start_day)
+    if ts.month > start_month or (ts.month == start_month and ts.day >= start_day):
+        season_start = datetime.date(ts.year, start_month, start_day)
+    else:
+        season_start = datetime.date(ts.year - 1, start_month, start_day)
 
     # Calculate days elapsed
-    days_elapsed = (input_date - season_start).days
+    days_elapsed = (ts - season_start).days
+    if days_elapsed > 365:
+        print(f"Warning: days elapsed is {days_elapsed}, this should not happen")
+        print(f"ts: {ts}, season_start: {season_start}")
+        print(f"start_month: {start_month}, start_day: {start_day}")
 
     # Calculate week number (1-based, ensuring it never exceeds 53)
     return math.floor(days_elapsed / 7) + 1

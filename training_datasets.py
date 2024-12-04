@@ -29,6 +29,44 @@ class FluDataset(torch.utils.data.Dataset):
         )
 
     @classmethod
+    def build_from_dataframes(cls, dict_of_dfs,
+        season_setup, download=False, transform=None, transform_inv=None, channels=3):
+        """
+        list_of_dfs: list of dataframes Each dataframe with columns:
+        - 'dataset_name' (str) the name of the dataset
+        - 'week_enddate' (datetime)  the date of the saturday at the end of the week
+        - 'location_code' (str) location name in the format used by the flusight data
+        - 'value' (float) the value of interest
+        - 'fluseason' (int) the flu season (e.g. 2019)
+        - 'fluseason_fraction' (float) the fraction of the flu season (e.g. 0.5)
+        """
+        # add the dataframe together:
+        df = pd.concat(list_of_dfs.values())
+        # remove the locations not in the season_setup
+        df = df[df["location_code"].isin(season_setup.locations)]
+        # order the fluseasons by the number of locations with data
+        flu_seasons = df.groupby("fluseason")["location_code"].nunique().sort_values(ascending=False).index
+
+        # First create the part of the dataset that corresponds to to actuals syncronous flu season
+        for seas in flu_seasons:
+            df_seas = df[df["fluseason"] == seas]
+            df_seas = df_seas[df_seas["location_code"].isin(season_setup.locations)]
+            flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df_seas, season_setup=season_setup))
+            return cls(
+                flu_dyn=flu_dyn,
+                transform=transform,
+                transform_inv=transform_inv,
+                channels=channels,
+            )
+
+
+
+
+
+        df = fluview[fluview["location_code"].isin(season_setup.locations)]
+        flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
+
+    @classmethod
     def from_SMHR1_fluview(
         cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
     ):
