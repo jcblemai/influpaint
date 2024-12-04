@@ -31,14 +31,12 @@ class SeasonSetup:
         self.locations_df = locations
 
         assert "location_code" in self.locations_df.columns
-        # self.locations_df = self.locations_df.set_index("location_code", drop=False)
+
         if "location_name" not in self.locations_df.columns:
             self.locations_df["location_name"] = self.locations_df["location_code"]
 
         self.locations = self.locations_df["location_code"].to_list()
-
         
-
         self.fluseason_startdate = fluseason_startdate
 
         print(f"Spatial Setup with {len(self.locations_df)} locations, with a season start_date of {self.fluseason_startdate.strftime('%b %d')}")
@@ -96,15 +94,15 @@ class SeasonSetup:
     def get_fluseason_year(self, ts):
         return get_season_year(ts, self.fluseason_startdate)
     
+    def get_fluseason_fraction(self, ts):
+        return get_season_fraction(ts, self.fluseason_startdate)
+    
     def get_dates(self):
         return pd.date_range(
             start=self.fluseason_startdate,
             end=self.fluseason_startdate + datetime.timedelta(years=1),
             freq="W-SAT",
         )
-
-    def get_fluseason_fraction(self, ts):
-        return get_season_fraction(ts, self.fluseason_startdate)
     
     def get_location_name(self, location_code):
         if pd.isna(location_code):
