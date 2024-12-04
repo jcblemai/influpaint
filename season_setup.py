@@ -128,11 +128,24 @@ class SeasonSetup:
 def remove_locations(location_list, locations_df):
     return locations_df[~locations_df["location_code"].isin(location_list)]
 
+#def get_season_year(ts, start_date):
+#    if ts.dayofyear >= start_date.dayofyear:
+#        return ts.year
+#    else:
+#        return ts.year - 1
+    
 def get_season_year(ts, start_date):
-    if ts.dayofyear >= start_date.dayofyear:
+    start_month= start_date.month
+    start_day= start_date.day
+    if isinstance(ts, datetime.datetime):
+        ts = ts.date()
+
+    if ts.month > start_month or (ts.month == start_month and ts.day >= start_day):
         return ts.year
     else:
         return ts.year - 1
+
+
 
 
 def get_season_fraction(ts, start_date):
