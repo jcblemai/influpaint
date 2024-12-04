@@ -1,6 +1,7 @@
 import datetime
 import pandas as pd
 
+
 # locations, in the right order
 class SeasonSetup:
     """ 
@@ -26,7 +27,7 @@ class SeasonSetup:
     """
 
     def __init__(
-        self, locations: pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-07-15")
+        self, locations: pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-08-01")
     ):
         self.locations_df = locations
 
@@ -97,6 +98,9 @@ class SeasonSetup:
     def get_fluseason_fraction(self, ts):
         return get_season_fraction(ts, self.fluseason_startdate)
     
+    def get_fluseason_week(self, ts):
+        return get_season_week(ts, start_month=self.fluseason_startdate.month, start_day=self.fluseason_startdate.day)
+    
     def get_dates(self):
         return pd.date_range(
             start=self.fluseason_startdate,
@@ -134,5 +138,32 @@ def get_season_fraction(ts, start_date):
         return (ts.dayofyear - start_date.dayofyear) / 365
     else:
         return ((ts.dayofyear + 365) - start_date.dayofyear) / 365
+    
+
+def get_season_week(input_date, start_month=8, start_day=1):
+    """
+    Calculate the season week (1-53) based on days elapsed since August 1st
+    TODO: this may be improved by making sure we use the closest date.
+
+    Args:
+        input_date (date or datetime): Date to convert
+
+    Returns:
+        int: Season week number (1-53)
+    """
+    import math
+
+    # Convert to date if datetime is passed
+    if isinstance(input_date, datetime.datetime):
+        input_date = input_date.date()
+
+    # Set the reference date for the season start
+    season_start = datetime.date(input_date.year if input_date.month >= start_month else input_date.year - 1, start_month, start_day)
+
+    # Calculate days elapsed
+    days_elapsed = (input_date - season_start).days
+
+    # Calculate week number (1-based, ensuring it never exceeds 53)
+    return math.floor(days_elapsed / 7) + 1
 
 
