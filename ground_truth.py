@@ -18,7 +18,7 @@ import myutils, build_dataset
 
 
 class GroundTruth():
-    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64, nogit=False):
+    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64, nogit=False, payload=None, payload_season_first_year=None):
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
@@ -44,6 +44,34 @@ class GroundTruth():
         
         self.gt_df = gt_df[gt_df["location_code"].isin(self.season_setup.locations)]
         self.gt_df_final = gt_df_final[gt_df_final["location_code"].isin(self.season_setup.locations)]
+        
+        # generates past data
+        self.previous_data = [build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
+                              build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
+
+
+        if payload is not None:
+            if payload_season_first_year is None:
+                payload_season_first_year = season_first_year
+            this_payload = payload[payload["fluseason"] == int(payload_season_first_yea)]   
+            self.gt_df = pd.concat([self.gt_df, this_payload], ignore_index=True)
+            self.gt_df_final = pd.concat([self.gt_df_final, payload], ignore_index=True)
+            self.previous_data.append(payload)
+            location_codes = self.gt_df.location_code.unique()
+            new_locations = pd.DataFrame({"location_code": sorted(location_codes)})
+            # Ensure location_code is of type string
+            new_locations['location_code'] = new_locations['location_code'].astype(str)
+            # Merge with season_setup.locations_df to get the location names
+            new_locations = new_locations.merge(self.season_setup.locations_df, 
+                                                on='location_code',
+                                                how='left')
+
+            # Fill missing location names with the location code
+            new_locations['location_name'] = new_locations['location_name'].fillna(new_locations['location_code'])
+            new_locations = new_locations[['location_code', 'location_name']]
+            self.season_setup.update_locations(new_locations)
+
+
 
         self.gt_xarr = build_dataset.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHosp", 
@@ -101,7 +129,7 @@ class GroundTruth():
             print(f"Restored git repo {repo_path}")
 
     def plot(self):
-        fig, axes = plt.subplots(11, 5, sharex=True, figsize=(12,24))
+        fig, axes = plt.subplots(8, 7, sharex=True, figsize=(14,16))
         gt_piv  = self.gt_df.pivot(index = "week_enddate", columns='location_code', values='value')
         gt_piv_final = self.gt_df_final.pivot(index = "week_enddate", columns='location_code', values='value')
         ax = axes.flat[0]
@@ -240,7 +268,7 @@ class GroundTruth():
         color_gt = "black"
         color_past='grey'
 
-        nplace_toplot = 51
+        nplace_toplot = len(self.season_setup.locations)
         #nplace_toplot = 3 # less plots for faster iteration
         plot_past_median = False
         if plot_past_median:
@@ -249,20 +277,20 @@ class GroundTruth():
             plotrange=slice(self.inpaintfrom_idx,-1)
 
 
-        if self.season_first_year == "2023" or self.season_first_year == "2024":
-            gt2022 = GroundTruth(season_first_year="2022", 
-                            data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
-                            mask_date=datetime.datetime.today(),
-                            channels=self.channels,
-                            image_size=self.image_size
-                            )
-        if self.season_first_year == "2024":
-            gt2023 = GroundTruth(season_first_year="2023", 
-                data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
-                mask_date=datetime.datetime.today(),
-                channels=self.channels,
-                image_size=self.image_size
-                )
+        #if self.season_first_year == "2023" or self.season_first_year == "2024":
+        #    gt2022 = GroundTruth(season_first_year="2022", 
+        #                    data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
+        #                    mask_date=datetime.datetime.today(),
+        #                    channels=self.channels,
+        #                    image_size=self.image_size,
+        #                    payload=pd.read_csv("custom_datasets/nc_payload_gt.csv", parse_dates=["week_enddate"]))
+        #if self.season_first_year == "2024":
+        #    gt2023 = GroundTruth(season_first_year="2023", 
+        #        data_date=datetime.datetime.combine(datetime.date(2023,7,15), datetime.datetime.min.time()),
+        #        mask_date=datetime.datetime.today(),
+        #        channels=self.channels,
+        #        image_size=self.image_size,
+        #        payload=pd.read_csv("custom_datasets/nc_payload_gt.csv", parse_dates=["week_enddate"]))
 
         for plot_title, plot_spec in plot_specs.items():
             #print(f"doing {plot_title}...")
@@ -323,7 +351,7 @@ class GroundTruth():
                 sns.despine(ax = ax, trim = True, offset=4)
 
                 # INDIVDIDUAL STATES: quantiles, median and ground-truth
-                max_y_value = np.zeros(52)
+                max_y_value = np.zeros(nplace_toplot)
                 for iqt in plot_spec["quantiles_idx"]:
                     yup = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
                     ylo = np.quantile(fluforecasts_ti, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
@@ -344,13 +372,17 @@ class GroundTruth():
                         ax.fill_between((x)[plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
 
                 # median line and ground truth for states
-                for ipl in range(nplace_toplot):   
+                for ipl in range(nplace_toplot):
+                    location_name=self.season_setup.get_location_name(self.season_setup.locations[ipl])
                     ax = axes[ipl+1][iax]
                     # median
                     ax.plot(np.arange(64)[plotrange],
                             np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
                     # ground truth
                     ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+
+                    # TODO I'm here
+                    # this_hist_data = self.previous_data["location_c"]
                     if self.season_first_year == "2023" or self.season_first_year == "2024":
                         ax.plot(gt2022.gt_xarr.data[0,:, ipl], color=color_past, ls='dashed', lw=.5)
                     if self.season_first_year == "2024":
@@ -362,7 +394,7 @@ class GroundTruth():
                     ax.set_xlim(x_lims)
                     ax.set_ylim(bottom=0, top=max_y_value[ipl])
                     if iax==0: ax.set_ylabel("New Hosp. Admissions")
-                    ax.set_title(self.season_setup.get_location_name(self.season_setup.locations[ipl]))
+                    ax.set_title(location_name)
                     sns.despine(ax = ax, trim = True, offset=4)
             fig.tight_layout()
             plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
