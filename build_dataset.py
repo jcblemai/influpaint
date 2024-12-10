@@ -18,7 +18,7 @@ def dataframe_to_xarray(
     season_setup: SeasonSetup = None,
     xarray_name="data",
     xarrax_features="value",
-    date_column="week_enddate",
+    date_column="season_week",
     value_column="value",
     pad=True,
 ) -> xr.DataArray:
