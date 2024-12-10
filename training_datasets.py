@@ -66,6 +66,7 @@ class FluDataset(torch.utils.data.Dataset):
         df = fluview[fluview["location_code"].isin(season_setup.locations)]
         flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
+
     @classmethod
     def from_SMHR1_fluview(
         cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
