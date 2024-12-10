@@ -71,7 +71,7 @@ class SeasonSetup:
                 raise ValueError(f"unreconized season {season_first_year}")
         
         if fluseason_startdate is None:
-            fluseason_startdate = pd.to_datetime(f"{season_first_year}-07-15")
+            fluseason_startdate = pd.to_datetime(f"{season_first_year}-08-01")
 
         flusight_locations = pd.read_csv(
             location_filepath,
