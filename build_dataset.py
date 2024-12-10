@@ -72,7 +72,7 @@ def dataframe_to_xarray(
 
 
 def dataframe_to_arraylist(
-    df: pd.DataFrame, season_setup: SeasonSetup = None, value_column="value"
+    df: pd.DataFrame, season_setup: SeasonSetup = None, value_column="value",
 ) -> np.ndarray:
 
     samples = []
@@ -80,12 +80,13 @@ def dataframe_to_arraylist(
     df_piv = df.pivot(
         columns="location_code",
         values=value_column,
-        index=["fluseason", "fluseason_fraction"],
+        index=["fluseason", "season_week"],
     )
     for season in df_piv.index.unique(level="fluseason"):
         array = df_piv.loc[season][
             season_setup.locations
-        ].to_numpy()  # make sure order is right w.r.t flusight_locations
+        ].sort_index().to_numpy()  # make sure order is right w.r.t flusight_locations
+
         array[np.isnan(array)] = 0  # replace NaNs with 0
         samples.append(
             np.array([padto64x64(array)])

@@ -33,7 +33,7 @@ class FluDataset(torch.utils.data.Dataset):
         season_setup, download=False, transform=None, transform_inv=None, channels=3):
         """
         list_of_dfs: list of dataframes Each dataframe with columns:
-        - 'dataset_name' (str) the name of the dataset
+
         - 'week_enddate' (datetime)  the date of the saturday at the end of the week
         - 'location_code' (str) location name in the format used by the flusight data
         - 'value' (float) the value of interest

@@ -30,18 +30,22 @@ class SeasonSetup:
     def __init__(
         self, locations: pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-08-01")
     ):
-        self.locations_df = locations
-
-        assert "location_code" in self.locations_df.columns
-
-        if "location_name" not in self.locations_df.columns:
-            self.locations_df["location_name"] = self.locations_df["location_code"]
-
-        self.locations = self.locations_df["location_code"].to_list()
+        self.update_locations(locations)
         
         self.fluseason_startdate = fluseason_startdate
 
         print(f"Spatial Setup with {len(self.locations_df)} locations, with a season start_date of {self.fluseason_startdate.strftime('%b %d')}")
+
+
+    def update_locations(self, new_locations):
+        self.locations_df = new_locations
+        assert "location_code" in self.locations_df.columns
+
+        if "location_name" not in self.locations_df.columns:
+            self.locations_df["location_name"] = self.locations_df["location_code"]
+        if "location_name" not in self.locations_df.columns:
+            self.locations_df["location_name"] = self.locations_df["location_code"]
+        self.locations = self.locations_df["location_code"].to_list()
     
     @classmethod
     def from_flusight(
