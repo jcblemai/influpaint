@@ -46,7 +46,7 @@ def dataframe_to_xarray(
             season_setup.locations_df["location_code"]
         ]  # make sure order is right w.r.t flusight_locations
         places = season_setup.locations_df["location_code"]
-
+        df_piv = df_piv.sort_index(axis=1)
 
     df_xarr = xr.DataArray(
         np.array([df_piv.to_numpy()]),
@@ -160,7 +160,7 @@ def get_from_epidata(
         df["week_enddate"] = df.index
     elif dataset == "flusight2023":
         df = pd.read_csv(
-            "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/target-data-archive/target-hospital-admissions_2024-04-27.csv",
+            "Flusight/2023-2024/FluSight-forecast-hub-official/target-data/target-hospital-admissions.csv",
             parse_dates=True,
             index_col="date",
         )
