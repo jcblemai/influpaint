@@ -13,12 +13,13 @@ def padto64x64(x: np.ndarray) -> np.ndarray:
     )
 
 
+
 def dataframe_to_xarray(
     df: pd.DataFrame,
     season_setup: SeasonSetup = None,
     xarray_name="data",
     xarrax_features="value",
-    date_column="season_week",
+    date_column="week_enddate",
     value_column="value",
     pad=True,
 ) -> xr.DataArray:
@@ -33,7 +34,8 @@ def dataframe_to_xarray(
     - places are location from Flusight data locations
     - samples are integers
     """
-    df_piv = df.pivot(columns="location_code", values=value_column, index=date_column)
+
+    df_piv = df.reset_index(drop=False).pivot(columns="location_code", values=value_column, index=date_column)
 
     if not isinstance(xarrax_features, list):
         xarrax_features = [xarrax_features]
@@ -241,6 +243,7 @@ def get_from_epidata(
     # get the flu season year and it's fraction elapsed
     df["fluseason"] = df["week_enddate"].apply(season_setup.get_fluseason_year)
     df["fluseason_fraction"] = df["week_enddate"].apply(season_setup.get_fluseason_fraction)
+    df["season_week"] = df["week_enddate"].apply(season_setup.get_fluseason_week)
     print(f"RAW Dataset {dataset} has {len(df)} data points, with {len(df['location_code'].unique())} locations,"
             f"and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
     # select only the columns we need
@@ -253,7 +256,7 @@ def get_from_epidata(
 
 
 def clean_dataset(df, season_setup):
-    df = df[["week_enddate", "location_code", "value", "fluseason", "fluseason_fraction"]]
+    df = df[["week_enddate", "location_code", "value", "fluseason", "fluseason_fraction", "season_week"]]
     # remove locations that are not in the season_setup
     df = df[df["location_code"].isin(season_setup.locations)]
     # remove NaNs
