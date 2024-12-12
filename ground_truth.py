@@ -18,7 +18,15 @@ import myutils, build_dataset
 
 
 class GroundTruth():
-    def __init__(self, season_first_year: str, data_date: datetime.datetime, mask_date: datetime.datetime, from_final_data:bool=False, channels=1, image_size=64, nogit=False, payload=None, payload_season_first_year=None):
+    def __init__(self, season_first_year: str, 
+                data_date: datetime.datetime, 
+                mask_date: datetime.datetime, 
+                from_final_data:bool=False, 
+                channels=1, 
+                image_size=64, 
+                nogit=False, 
+                payload=None, 
+                payload_season_first_year=None):
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
@@ -47,15 +55,15 @@ class GroundTruth():
         
         # generates past data
         self.previous_data = [build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
-                              build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
+                            build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
 
 
         if payload is not None:
             if payload_season_first_year is None:
                 payload_season_first_year = season_first_year
-            this_payload = payload[payload["fluseason"] == int(payload_season_first_yea)]   
+            this_payload = payload[payload["fluseason"] == int(payload_season_first_year)]
             self.gt_df = pd.concat([self.gt_df, this_payload], ignore_index=True)
-            self.gt_df_final = pd.concat([self.gt_df_final, payload], ignore_index=True)
+            self.gt_df_final = pd.concat([self.gt_df_final, this_payload], ignore_index=True)
             self.previous_data.append(payload)
             location_codes = self.gt_df.location_code.unique()
             new_locations = pd.DataFrame({"location_code": sorted(location_codes)})
@@ -71,7 +79,7 @@ class GroundTruth():
             new_locations = new_locations[['location_code', 'location_name']]
             self.season_setup.update_locations(new_locations)
 
-
+        self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
 
         self.gt_xarr = build_dataset.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHosp", 
@@ -300,17 +308,20 @@ class GroundTruth():
     
                 x = np.arange(64)
                 if iax == 0:
-                    x_lims = (0, 52)
+                    x_lims_idx = (0, 51)
+                    x_lims = (pd.to_datetime(self.gt_xarr["date"][x_lims_idx[0]].values), 
+                            pd.to_datetime(self.gt_xarr["date"][x_lims_idx[1]].values))
                 elif iax == 1:
-                    x_lims = (idx_now-3, idx_horizon)
-    
+                    x_lims_idx = (idx_now-3, idx_horizon)
+                    x_lims = (pd.to_datetime(self.gt_xarr["date"][x_lims_idx[0]].values), 
+                            pd.to_datetime(self.gt_xarr["date"][x_lims_idx[1]].values))
                 # US WIDE: quantiles and median, US-wide
                 for iqt in plot_spec["quantiles_idx"]:
                     #print(f"up: {flusight_quantile_pairs[iqt,0]} - lo: {flusight_quantile_pairs[iqt,1]}")
                     # TODO: not exactly true that it is the sum of quantiles (sum of quantile is not quantile of sum)
                     ylo = np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0]
                     yup = np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0]
-                    ax.fill_between(x[plotrange], 
+                    ax.fill_between(self.gt_xarr["date"][plotrange], 
                                     ylo[plotrange], 
                                     yup[plotrange], 
                                     alpha=.1, 
@@ -319,21 +330,31 @@ class GroundTruth():
                     # widest quantile pair is the first one. We take the up quantile of it + a few % as x_lim
                     if iqt == plot_spec["quantiles_idx"][0]:
                         if plot_past_median:
-                            max_y_value = max(yup[x_lims[0]:x_lims[1]])
+                            max_y_value = max(yup[x_lims_idx[0]:x_lims_idx[1]])
                         else:
-                            max_y_value = max(yup[self.inpaintfrom_idx:x_lims[1]])
-                        max_y_value = max(max_y_value, self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1)[x_lims[0]:x_lims[1]].max())
+                            max_y_value = max(yup[self.inpaintfrom_idx:x_lims_idx[1]])
+                        max_y_value = max(max_y_value, self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1)[x_lims_idx[0]:x_lims_idx[1]].max())
                         max_y_value = max_y_value + max_y_value*.05 # 10% more
     
                 # median
-                ax.plot(x[plotrange], np.quantile(forecasts_national, myutils.flusight_quantiles[12], axis=0)[0][plotrange], color=plot_spec["color"], marker='.', label='forecast median')
+                ax.plot(self.gt_xarr["date"][plotrange],
+                        np.quantile(forecasts_national, myutils.flusight_quantiles[12], axis=0)[0][plotrange], color=plot_spec["color"], marker='.', label='forecast median')
     
                 # ground truth
-                ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1), color=color_gt, marker = '.', lw=.5, label='ground-truth')
-                if self.season_first_year == "2023" or self.season_first_year == "2024":
-                    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashed', lw=.5, label='2022 ground-truth')
-                if self.season_first_year == "2024":
-                    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashdot', lw=.5, label='2023 ground-truth')
+                ax.plot(self.gt_xarr["date"][:self.inpaintfrom_idx],
+                        self.gt_xarr.data[0,:self.inpaintfrom_idx].sum(axis=1), color=color_gt, marker = '.', lw=.5, label='ground-truth')
+                ax.plot(self.gt_xarr["date"][self.inpaintfrom_idx:],
+                        self.gt_xarr.data[0,self.inpaintfrom_idx:].sum(axis=1), 
+                        color='red', 
+                        marker = '.', 
+                        lw=.1, 
+                        label='ground-truth',
+                        markersize=.4)
+
+                #if self.season_first_year == "2023" or self.season_first_year == "2024":
+                #    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashed', lw=.5, label='2022 ground-truth')
+                #if self.season_first_year == "2024":
+                #    ax.plot(gt2022.gt_xarr.data[0,:].sum(axis=1), color=color_past, ls='dashdot', lw=.5, label='2023 ground-truth')
 
                 if iax==0:
                     ax.legend(fontsize=8)
@@ -343,9 +364,9 @@ class GroundTruth():
 
                 ax.set_xlim(x_lims)
                 ax.set_ylim(bottom=0, top=max_y_value)
-                ax.axvline(idx_now, c='k', lw=1, ls='-.')
+                ax.axvline(self.gt_xarr["date"][idx_now].values, c='k', lw=1, ls='-.')
                 if iax == 0:
-                    ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
+                    ax.axvline(self.gt_xarr["date"][idx_horizon].values, c='k', lw=1, ls='-.')
                 ax.set_title("National")
 
                 sns.despine(ax = ax, trim = True, offset=4)
@@ -360,41 +381,54 @@ class GroundTruth():
                     if iqt == plot_spec["quantiles_idx"][0]:
                         for ipl in range(nplace_toplot):
                             if plot_past_median:
-                                max_y_value[ipl] = max(ylo[x_lims[0]:x_lims[1], ipl])
+                                max_y_value[ipl] = max(ylo[x_lims_idx[0]:x_lims_idx[1], ipl])
                             else:
-                                max_y_value[ipl] = max(ylo[self.inpaintfrom_idx:x_lims[1], ipl])
+                                max_y_value[ipl] = max(ylo[self.inpaintfrom_idx:x_lims_idx[1], ipl])
                             #max_y_value[ipl] =  max(ylo[x_lims[:x_lims[1], ipl])
-                            max_y_value[ipl] = max(max_y_value[ipl], self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl][x_lims[0]:x_lims[1]].max())
+                            max_y_value[ipl] = max(max_y_value[ipl], self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl][x_lims_idx[0]:x_lims_idx[1]].max())
                             max_y_value[ipl] = max_y_value[ipl] + max_y_value[ipl]*.05 # 10% more for the y_max value
 
                     for ipl in range(nplace_toplot):
                         ax = axes[ipl+1][iax]
-                        ax.fill_between((x)[plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
+                        ax.fill_between(self.gt_xarr["date"][plotrange],  (yup[:,ipl])[plotrange], (ylo[:,ipl])[plotrange], alpha=.1, color=plot_spec["color"])
 
                 # median line and ground truth for states
                 for ipl in range(nplace_toplot):
                     location_name=self.season_setup.get_location_name(self.season_setup.locations[ipl])
                     ax = axes[ipl+1][iax]
                     # median
-                    ax.plot(np.arange(64)[plotrange],
+                    ax.plot(self.gt_xarr["date"][plotrange],
                             np.quantile(fluforecasts_ti, myutils.flusight_quantiles[12], axis=0)[0,:,ipl][plotrange], color=plot_spec["color"], marker = '.', lw=.5)
                     # ground truth
-                    ax.plot(self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+                    ax.plot(self.gt_xarr["date"][:self.inpaintfrom_idx],
+                            self.gt_xarr.data[0,:self.inpaintfrom_idx, ipl], color=color_gt, marker = '.', lw=.5)
+                    ax.plot(self.gt_xarr["date"][self.inpaintfrom_idx:],
+                            self.gt_xarr.data[0,self.inpaintfrom_idx:, ipl], color='red', marker = '.', lw=.1, markersize=.4)
 
                     # TODO I'm here
-                    # this_hist_data = self.previous_data["location_c"]
-                    if self.season_first_year == "2023" or self.season_first_year == "2024":
-                        ax.plot(gt2022.gt_xarr.data[0,:, ipl], color=color_past, ls='dashed', lw=.5)
-                    if self.season_first_year == "2024":
-                        ax.plot(gt2023.gt_xarr.data[0,:, ipl], color=color_past, ls='dashdot', lw=.5)
+                    
+                    this_hist_data = self.previous_data[self.previous_data["location_code"]==self.season_setup.locations[ipl]]
+                    for hist_season in this_hist_data["fluseason"].unique():
+                        if int(hist_season) != int(self.season_first_year):
+                            hist_data = this_hist_data[this_hist_data["fluseason"]==hist_season]
+                            hist_data = hist_data.pivot(index = "season_week", columns='location_code', values='value').sort_index()
+                            thisthing = hist_data[self.season_setup.locations[ipl]]
+                            # TODO MATCH HERE !!!!
+                            ax.plot(self.gt_xarr["date"][0:len(thisthing)], thisthing, color=color_past, ls='dashed', lw=.5, label=f"{hist_season}")
 
-                    ax.axvline(idx_now, c='k', lw=1, ls='-.')
+                    ax.axvline(self.gt_xarr["date"][idx_now].values, c='k', lw=1, ls='-.')
                     if iax == 0:
-                        ax.axvline(idx_horizon, c='k', lw=1, ls='-.')
+                        ax.axvline(self.gt_xarr["date"][idx_horizon].values, c='k', lw=1, ls='-.')
                     ax.set_xlim(x_lims)
                     ax.set_ylim(bottom=0, top=max_y_value[ipl])
                     if iax==0: ax.set_ylabel("New Hosp. Admissions")
                     ax.set_title(location_name)
+                    # rotate the x axis labels
+                    ax.tick_params(axis='x', rotation=45)
+                    #print the tick label as 12 J-22
+                    import matplotlib.dates as mdates
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b-%y'))
+
                     sns.despine(ax = ax, trim = True, offset=4)
             fig.tight_layout()
             plt.savefig(f"{directory}/{prefix}-{forecast_date_str}-plot{plot_title}.pdf")
@@ -409,8 +443,6 @@ class GroundTruth():
         target_dict= dict(zip(
             target_dates, 
             [f"{n}" for n in range(0,4)]))
-
-        print(target_dates)
 
         df_list=[]
         for qt in myutils.flusight_quantiles:
