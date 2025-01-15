@@ -17,6 +17,28 @@ import datetime
 import myutils, build_dataset
 
 
+def pad_dataframe(df, season_setup):
+    # Make sure gt_df and gt_df_final have values (even if NaN) for all dates in the season
+    date_range = pd.date_range(start=df.week_enddate.min(), periods=52, freq='W-SAT')
+    locations = df.location_code.unique()
+    # Create expanded dataframe with all combinations of dates and locations
+    expanded_df = pd.DataFrame([(d, l) for d in date_range for l in locations],
+                            columns=['week_enddate', 'location_code'])
+
+    # Calculate the season columns
+    expanded_df['fluseason'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_year)
+    expanded_df['fluseason_fraction'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_fraction)
+    expanded_df['season_week'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_week)
+
+    # Merge with original data to get values where they exist
+    padded_df = expanded_df.merge(
+        df[['week_enddate', 'location_code', 'value']], 
+        on=['week_enddate', 'location_code'], 
+        how='left'
+    )
+    return padded_df
+
+
 class GroundTruth():
     def __init__(self, season_first_year: str, 
                 data_date: datetime.datetime, 
@@ -56,6 +78,10 @@ class GroundTruth():
         # generates past data
         self.previous_data = [build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
                             build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
+        
+
+        self.gt_df = pad_dataframe(self.gt_df, self.season_setup)
+        self.gt_df_final = pad_dataframe(self.gt_df_final, self.season_setup)
 
 
         if payload is not None:
@@ -78,6 +104,8 @@ class GroundTruth():
             new_locations['location_name'] = new_locations['location_name'].fillna(new_locations['location_code'])
             new_locations = new_locations[['location_code', 'location_name']]
             self.season_setup.update_locations(new_locations)
+
+        
 
         self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
 
