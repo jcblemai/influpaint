@@ -80,8 +80,15 @@ class GroundTruth():
                             build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
         
 
+
         self.gt_df = pad_dataframe(self.gt_df, self.season_setup)
         self.gt_df_final = pad_dataframe(self.gt_df_final, self.season_setup)
+
+        last_non_nan_datadate = self.gt_df.week_enddate[self.gt_df.value.notna()].max().to_pydatetime()
+        # If the last data_point is not in the last week, we need to update the mask to be in the week after the last data point
+        if self.mask_date > last_non_nan_datadate + datetime.timedelta(days=7):
+            self.mask_date = last_non_nan_datadate + datetime.timedelta(days=2)
+            print(f" WARNING: mask_date is after last non-NaN data date, setting mask_date to {self.mask_date}")
 
 
         if payload is not None:
@@ -117,11 +124,9 @@ class GroundTruth():
             xarray_name = "gt_flusight_incidHos_final", 
             xarrax_features = "incidHosp")
 
-        # perturb the masking:
-        l = [d.astype('datetime64[D]').view('int64').astype('datetime64[D]').tolist() for d in self.gt_xarr.coords['date'].to_numpy()]
-        for i, d in enumerate(l):
-            if d is not None and d < self.mask_date.date():
-                self.inpaintfrom_idx = i + 1
+        # Find the largest index of the data dates that are before the mask date
+        dates = pd.to_datetime(self.gt_xarr.coords['date'].values)
+        self.inpaintfrom_idx = sum(dates < self.mask_date)
 
         self.gt_keep_mask = np.ones((channels,image_size,image_size))
         self.gt_keep_mask[:,self.inpaintfrom_idx:,:] = 0
