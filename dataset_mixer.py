@@ -72,7 +72,7 @@ def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
         for i in range(multiplier):
             df_copy = df.copy()
             df_copy.loc[:, "dataset_name"] = f"{dataset_name}_{i}"
-            df_copy.loc[:, "fluseason"] = df_copy.loc[:, "fluseason"] + i * 10000 # Offset season by 10000, so they don't overlap
+            df_copy.loc[:, "fluseason"] = df_copy.loc[:, "fluseason"] + i * 1000 # Offset season by 1000, so they don't overlap
             combined_datasets.append(df_copy)
 
     return pd.concat(combined_datasets, ignore_index=True)
@@ -80,27 +80,37 @@ def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
 def pad_single_frame(frame: pd.DataFrame, location: str) -> pd.DataFrame:
     """
     Pads a location-specific epidemic time series to ensure complete weekly coverage.
-    
+        
     For a given location's time series, fills in missing weeks using the following rules:
     - Weeks before the first observation or after the last observation are filled with zeros
     - Weeks between existing observations are filled using the previous week's value
-    
+        
     Args:
         frame (pd.DataFrame): DataFrame containing epidemic data for a single location
         location (str): Location identifier for the current frame
     
     Returns:
         pd.DataFrame: Padded DataFrame with entries for all weeks 1-53
-        
+            
     Note:
         The function assumes weeks should range from 1 to 53. Missing weeks are identified
         and filled according to their position relative to existing data.
     """
-    min_week = frame["season_week"].min()
-    max_week = frame["season_week"].max()
+    # Handle empty input
+    if frame.empty:
+        frame = pd.DataFrame({
+            "season_week": [],
+            "location_code": [],
+            "value": []
+        })
+        
+    # Get min/max weeks if data exists
+    min_week = frame["season_week"].min() if not frame.empty else 53
+    max_week = frame["season_week"].max() if not frame.empty else 0
+        
     all_weeks = set(range(1, 54))
     missing_weeks = sorted(list(all_weeks - set(frame["season_week"])))
-    
+        
     # Fill in missing weeks
     for week in missing_weeks:
         # Determine fill value based on position
@@ -109,7 +119,7 @@ def pad_single_frame(frame: pd.DataFrame, location: str) -> pd.DataFrame:
         else:
             # Internal gaps filled with previous week's value
             previous_week = frame[frame["season_week"] == week-1]
-            new_value = previous_week["value"].values[0]
+            new_value = previous_week["value"].values[0] if not previous_week.empty else 0
 
         # Create new row for missing week
         new_frame = pd.DataFrame({
@@ -119,7 +129,7 @@ def pad_single_frame(frame: pd.DataFrame, location: str) -> pd.DataFrame:
         })
         frame = pd.concat([frame, new_frame])
 
-    return frame.reset_index(drop=True)
+    return frame.sort_values("season_week").reset_index(drop=True)
 
 def build_frames(dict_of_dfs: dict) -> list:
     """

@@ -30,7 +30,7 @@ def test_merge_datasets_basic(sample_data):
     
     assert len(result) == 6  # 3 rows * 2 multipliers
     assert set(result['dataset_name']) == {'test1_0', 'test1_1'}
-    assert set(result['fluseason']) == {2020, 10200}
+    assert set(result['fluseason']) == {2020, 12020}
 
 def test_merge_datasets_multiple(sample_data):
     """Test merging multiple datasets"""
