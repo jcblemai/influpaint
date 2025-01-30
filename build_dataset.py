@@ -87,9 +87,11 @@ def dataframe_to_arraylist(
     for season in df_piv.index.unique(level="fluseason"):
         array = df_piv.loc[season][
             season_setup.locations
-        ].sort_index().to_numpy()  # make sure order is right w.r.t flusight_locations
+        ].sort_index().to_numpy()  # make sure order is right w.r.t season_setup locations and the time is right
+        # TODO: should give an error when dates are missing because it would be missaligned
 
         array[np.isnan(array)] = 0  # replace NaNs with 0
+
         samples.append(
             np.array([padto64x64(array)])
         )  # pad to 64x64 and add a dimension for channel

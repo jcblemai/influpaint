@@ -106,7 +106,6 @@ class SeasonSetup:
     def get_fluseason_week(self, ts):
         return get_season_week(ts, start_month=self.fluseason_startdate.month, 
                                    start_day=self.fluseason_startdate.day)
-    
     def get_dates(self):
         return pd.date_range(
             start=self.fluseason_startdate,
@@ -128,6 +127,11 @@ class SeasonSetup:
             freq=freq,
         )
         return dr
+    
+    def reorder_locations(self, ordered_list):
+        self.locations_df = self.locations_df[self.locations_df["location_code"].isin(ordered_list)]
+        self.locations = ordered_list
+        
 
 def remove_locations(location_list, locations_df):
     return locations_df[~locations_df["location_code"].isin(location_list)]

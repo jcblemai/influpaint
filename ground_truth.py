@@ -48,7 +48,8 @@ class GroundTruth():
                 image_size=64, 
                 nogit=False, 
                 payload=None, 
-                payload_season_first_year=None):
+                payload_season_first_year=None,
+                dataset_coords: xr.core.coordinates.DataArrayCoordinates=None): 
         self.season_first_year = season_first_year
         self.data_date = data_date
         self.mask_date = mask_date
@@ -94,6 +95,8 @@ class GroundTruth():
         if payload is not None:
             if payload_season_first_year is None:
                 payload_season_first_year = season_first_year
+            import dataset_mixer
+            payload = dataset_mixer.add_season_columns(payload, self.season_setup)
             this_payload = payload[payload["fluseason"] == int(payload_season_first_year)]
             self.gt_df = pd.concat([self.gt_df, this_payload], ignore_index=True)
             self.gt_df_final = pd.concat([self.gt_df_final, this_payload], ignore_index=True)
@@ -112,7 +115,9 @@ class GroundTruth():
             new_locations = new_locations[['location_code', 'location_name']]
             self.season_setup.update_locations(new_locations)
 
-        
+        if dataset_coords is not None:
+            # change the flusetup locations to be in the same order as flu_payload_array.coords["place"]
+            self.season_setup.reorder_locations(list(dataset_coords["place"].values))
 
         self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
 
@@ -170,7 +175,7 @@ class GroundTruth():
             print(f"Restored git repo {repo_path}")
 
     def plot(self):
-        fig, axes = plt.subplots(8, 7, sharex=True, figsize=(14,16))
+        fig, axes = plt.subplots(8, 8, sharex=True, figsize=(14,16))
         gt_piv  = self.gt_df.pivot(index = "week_enddate", columns='location_code', values='value')
         gt_piv_final = self.gt_df_final.pivot(index = "week_enddate", columns='location_code', values='value')
         ax = axes.flat[0]

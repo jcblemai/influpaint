@@ -7,11 +7,15 @@ import tqdm
 import epiweeks
 
 
-def add_season_columns(df, season_setup):
+def add_season_columns(df, season_setup, do_fluseason_year=True):
     df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
-    df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
     df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_fluseason_week))
     df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
+    
+    if do_fluseason_year:
+        df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
+        
+    
     return df
 
 def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
@@ -199,4 +203,4 @@ def build_frames(dict_of_dfs: dict) -> list:
             
             all_frames.append(pd.concat(new_frames))
             
-    return all_frames
+    return all_frames, combined_df
