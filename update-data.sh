@@ -20,6 +20,11 @@ git pull
 cd ../../..
 cp Flusight/flu-datasets/delphi-epidata/src/client/delphi_epidata.py helpers/
 
+cd custom_datasets/NC_Forecasting_Collab
+git pull
+cd ../..
+
+
 #cd Flusight/flu-datasets/synthetic/flu-scenario-modeling-hub/
 #git pull
 #cd ../../../..
