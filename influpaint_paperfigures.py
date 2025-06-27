@@ -250,13 +250,215 @@ def create_figure_2(samples, dataset,
     plt.show()
     
     return fig
-
 if do_sampling:
-    # Custom with specific labels
+    # Custom with specific labels for Figure 1
     indices_custom = [10, 25, 50]
     labels_custom = ['(a) Curve A', '(b) Curve B', '(c) Curve C']
-    create_figure_1(samples, dataset, indices=indices_custom, season_labels=labels_custom, 
-                   save_path='figures/fig2_unconditional.png')
+    create_figure_2(samples, dataset, indices=indices_custom, season_labels=labels_custom, 
+                   save_path='figures/fig1_unconditional.png')
+
+# %%
+def load_forecast_csv(csv_path):
+    """Load and process forecast CSV file"""
+    import pandas as pd
+    df = pd.read_csv(csv_path)
+    return df
+
+def load_truth_data(truth_path="/users/c/h/chadi/influpaint/Flusight/2022-2023/FluSight-forecast-hub-official/data-truth/truth-Incident Hospitalizations.csv"):
+    """Load ground truth data from FluSight"""
+    import pandas as pd
+    import os
+    if os.path.exists(truth_path):
+        truth_df = pd.read_csv(truth_path)
+        truth_df['date'] = pd.to_datetime(truth_df['date'])
+        return truth_df
+    else:
+        print(f"Truth file not found: {truth_path}")
+        return None
+
+def create_figure_2_forecasting(csv_files, states, save_path=None):
+    """
+    Figure 2: Forecasting case studies showing full flu season with forecasts overlaid
+    • Shows complete 2022-2023 flu season with ground truth
+    • Overlays forecast fans at their respective forecast dates
+    • Demonstrates different forecasting scenarios across the season
+    """
+    import pandas as pd
+    import datetime as dt
+    
+    # Load ground truth data
+    truth_df = load_truth_data()
+    
+    # Set paper-ready style
+    plt.style.use('default')
+    plt.rcParams['font.size'] = 12
+    plt.rcParams['axes.linewidth'] = 0.8
+    
+    # Create single large plot
+    fig, ax = plt.subplots(1, 1, figsize=(16, 10), dpi=300)
+    
+    # Define colors for different forecasts
+    forecast_colors = ['#FF4444', '#4444FF', '#44AA44', '#AA44AA']
+    
+    # Plot full season ground truth first
+    if truth_df is not None:
+        # Use first available state for demonstration
+        state = states[0] if states else '01'
+        state_truth = truth_df[truth_df['location'] == state]
+        
+        if len(state_truth) > 0:
+            # Get full 2022-2023 flu season data
+            season_start = pd.to_datetime('2022-10-01')
+            season_end = pd.to_datetime('2023-05-31')
+            
+            season_truth = state_truth[
+                (state_truth['date'] >= season_start) & 
+                (state_truth['date'] <= season_end)
+            ].sort_values('date')
+            
+            if len(season_truth) > 0:
+                print(f"Ground truth dates: {season_truth['date'].min().date()} to {season_truth['date'].max().date()}")
+                
+                # Plot full season ground truth using actual dates
+                ax.plot(season_truth['date'], season_truth['value'], 
+                       color='black', linewidth=3, marker='o', markersize=4,
+                       label='Observed Ground Truth', markerfacecolor='white', 
+                       markeredgecolor='black', markeredgewidth=1)
+    
+    # Now overlay each forecast at its respective date
+    legend_labels = []
+    for i, (csv_file, state, color) in enumerate(zip(csv_files, states, forecast_colors)):
+        # Load forecast data
+        df = load_forecast_csv(csv_file)
+        print(f"Processing forecast {i+1}: {csv_file.split('/')[-1]}")
+        
+        # Filter for the state
+        state_data = df[df['location'] == state] if 'location' in df.columns else df
+        
+        if len(state_data) == 0:
+            available_states = df['location'].unique()[:5]
+            if len(available_states) > 0:
+                state = available_states[0]
+                state_data = df[df['location'] == state]
+        
+        if len(state_data) == 0:
+            continue
+            
+        # Sort by target_end_date
+        state_data = state_data.sort_values('target_end_date')
+        
+        # Extract forecast date from CSV data (more reliable than filename)
+        if 'forecast_date' in state_data.columns:
+            forecast_date = pd.to_datetime(state_data['forecast_date'].iloc[0])
+            print(f"  Forecast date from CSV: {forecast_date.date()}")
+        else:
+            # Fallback to filename parsing
+            import re
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})\.csv$', csv_file)
+            if not date_match:
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', csv_file.split('/')[-1])
+            
+            if not date_match:
+                print(f"  Could not extract date from filename: {csv_file}")
+                continue
+                
+            forecast_date = pd.to_datetime(date_match.group(1))
+            print(f"  Forecast date from filename: {forecast_date.date()}")
+        
+        # Get quantiles
+        available_quantiles = sorted(state_data['quantile'].unique())
+        quantiles = [0.025, 0.1, 0.25, 0.5, 0.75, 0.9, 0.975]
+        quantiles = [q for q in quantiles if q in available_quantiles]
+        
+        # Plot forecast uncertainty bands
+        for q_idx in range(len(quantiles)//2):
+            lower_q = quantiles[q_idx]
+            upper_q = quantiles[-(q_idx+1)]
+            
+            lower_data = state_data[state_data['quantile'] == lower_q].sort_values('target_end_date')
+            upper_data = state_data[state_data['quantile'] == upper_q].sort_values('target_end_date')
+            
+            if len(lower_data) > 0 and len(upper_data) > 0:
+                # Use actual target_end_dates for x-axis
+                forecast_dates = pd.to_datetime(lower_data['target_end_date'])
+                alpha = 0.3 - q_idx * 0.05
+                
+                ax.fill_between(forecast_dates, 
+                              lower_data['value'].values, 
+                              upper_data['value'].values, 
+                              alpha=alpha, color=color, edgecolor='none')
+        
+        # Plot median forecast
+        median_data = state_data[state_data['quantile'] == 0.5].sort_values('target_end_date')
+        if len(median_data) > 0:
+            forecast_dates = pd.to_datetime(median_data['target_end_date'])
+            
+            ax.plot(forecast_dates, median_data['value'], 
+                   color=color, linewidth=3, linestyle='-',
+                   label=f'Forecast {i+1} ({forecast_date.strftime("%b %d")})')
+        
+        # Add vertical line at forecast date
+        ax.axvline(forecast_date, color=color, linestyle='--', alpha=0.7, linewidth=2)
+    
+    # Formatting
+    ax.set_xlabel('Date (2022-2023 Flu Season)', fontsize=14)
+    ax.set_ylabel('Flu Hospitalizations', fontsize=14)
+    ax.set_title('Figure 2: Forecasting Case Studies - Full Season Context\nInfluPaint Inpainting Results', 
+                fontsize=16, fontweight='bold', pad=20)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(bottom=0)
+    
+    # Format x-axis dates
+    import matplotlib.dates as mdates
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Style
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Legend
+    ax.legend(loc='upper right', fontsize=11, frameon=True, fancybox=True, shadow=True)
+    
+    # Final layout
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.90)
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', format='png')
+        pdf_path = save_path.replace('.png', '.pdf')
+        plt.savefig(pdf_path, dpi=300, bbox_inches='tight', facecolor='white', format='pdf')
+
+    plt.show()
+    return fig
+
+# Example usage for Figure 2 - Load forecast CSVs and create case studies
+forecast_base_path = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/forecasts_noTT/test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2/"
+
+# Select representative dates and states for the four case studies
+case_study_files = [
+    forecast_base_path + "test::model_MyUnet200::dataset_RFv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-11-14.csv",
+    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-10-17.csv", 
+    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2023-02-06.csv",
+    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-12-12.csv"
+]
+
+# Representative states for each case study (using numeric FIPS codes)
+case_study_states = ["01", "02", "04", "05"]  # Alabama, Alaska, Arizona, Arkansas
+
+# Check if files exist and create the figure
+import os
+existing_files = [f for f in case_study_files if os.path.exists(f)]
+
+if len(existing_files) >= 2:  # Need at least 2 files for meaningful comparison
+    create_figure_2_forecasting(existing_files[:4], case_study_states[:len(existing_files[:4])], 
+                               save_path='figure_2_forecasting.png')
+else:
+    print(f"Found {len(existing_files)} forecast files. Need at least 2 for Figure 2.")
+    print("Available files:")
+    for f in existing_files:
+        print(f"  {f}")
 
 
 
