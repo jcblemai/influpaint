@@ -38,6 +38,266 @@ do_training = False
 # ## Prepare ground-truth for inpainting
 
 # %%
+%ls /users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/*.pth
+
+# %%
+checkpoint_fn = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet500::dataset_R1::trans_Sqrt::enrich_No::800.pth"
+#work with noTT2
+checkpoint_fn = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800.pth"
+
+# %%
+model_str = checkpoint_fn.split('/')[-1]
+for part in model_str.split('::')[1:-1]:
+    print(part)
+    tp, val = part.split('_')
+    if tp == 'model':
+        unet_spec = epiframework.model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
+        ddpm1 = unet_spec[val]
+    elif tp == "dataset":
+        dataset_spec = epiframework.dataset_library(gt1=gt1, channels=channels)
+        dataset = dataset_spec[val]
+    elif tp == "trans":
+        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
+        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
+        transform = transforms_spec[val]
+    elif tp == "enrich":
+        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
+        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
+        enrich = transform_enrich[val]
+dataset.add_transform(transform=transform["reg"], transform_inv=transform["inv"], transform_enrich=enrich, bypass_test=False)
+
+# %%
+ddpm1.load_model_checkpoint(checkpoint_fn)
+
+
+# %% [markdown]
+# ## Sampling (inference)
+# 
+# To sample from the model, we can just use our sample function defined above:
+# `samples[-1][:,0,:,:].shape` is (512, 64, 64) which is batchsize, epiweek, locations
+
+# %%
+do_sampling=True
+if do_sampling: 
+    samples = ddpm1.sample()
+    random_index = 0
+    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
+    ax = axes # es.flat[i]
+    idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][random_index]), ax = ax)
+    plt.show()
+    plt.imshow(samples[-1][random_index].reshape(image_size, image_size, channels))
+    plt.show()
+
+# %%
+
+if do_sampling:
+    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
+    ax = axes # es.flat[i]
+    for i in range(batch_size):
+        idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax)
+
+    #ax.set_ylim(0,10000)
+
+# %%
+#plt.hist(samples[-1].flatten(), bins = 100);
+#plt.plot(transform_inv(samples[-1][:,0,:,:].sum(axis=2)).T);
+
+# %%
+if do_sampling:
+    # histogram of peaks. In the US historically it's from 13k to 34k
+    plt.hist(dataset.transform_inv(samples[-1][:,0,:,:].sum(axis=2)).max(axis=1), bins=30)
+print(f"mean peak is {dataset.transform_inv(samples[-1][:,0,:,:].sum(axis=2)).max(axis=1).mean()/1000:.1f}k (US historically it's from 13k to 34k)")
+
+# %%
+# %% [markdown]
+# ## Paper Figures
+
+# %%
+def create_figure_2(samples, dataset, 
+                    indices=[1, 2, 3, 4, 5],  
+                    season_labels=None,
+                    save_path=None, 
+                    title=False):
+    """
+    Figure 1 displays representative, unconditional seasons with heatmaps and curves.
+    Parameters:
+    - indices: list of sample indices to display (determines number of subplots)
+    - season_labels: list of labels for each season (auto-generated if None)
+    """
+    
+    n_seasons = len(indices)
+    
+    # Auto-generate labels if not provided
+    if season_labels is None:
+        default_labels = ['Canonical', 'Bimodal', 'Mild/Dispersed', 'Early-Onset', 'Spatially Heterogeneous', 
+                         'Late Peak', 'Multi-Peak', 'Extended', 'Compressed', 'Regional']
+        season_labels = [f'({chr(97+i)}) {default_labels[i % len(default_labels)]}' for i in range(n_seasons)]
+    
+    # Set paper-ready style
+    plt.style.use('default')
+    #plt.rcParams['font.family'] = 'Arial'
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['axes.linewidth'] = 0.8
+    
+    # Adjust figure size based on number of seasons
+    fig_width = min(20, max(12, n_seasons * 3.6))
+    fig = plt.figure(figsize=(fig_width, 10), dpi=300)
+    
+    # Create subplot grid: 2 rows (heatmap, curve), n_seasons columns
+    gs = fig.add_gridspec(2, n_seasons, hspace=0.35, wspace=0.25, height_ratios=[2.2, 1])
+    
+    
+    # Find global min/max for consistent heatmap scaling
+    all_data = []
+    for idx in indices:
+        sample_data = dataset.apply_transform_inv(samples[-1][idx])
+        # samples[-1] shape is (batch_size, 64, 64), we need (52, 51)
+        sample_2d = sample_data[0][:52, :51]  # Take first 52 weeks, 51 locations
+        all_data.append(sample_2d)
+    vmin = min([data.min() for data in all_data])
+    vmax = max([data.max() for data in all_data])
+    
+    for i, (idx, label) in enumerate(zip(indices, season_labels)):
+        # Get transformed data for this sample
+        sample_data = dataset.apply_transform_inv(samples[-1][idx])
+        sample_2d = sample_data[0][:52, :51]  # Take first 52 weeks, 51 locations
+        
+        # Top row: Heatmaps
+        ax_heat = fig.add_subplot(gs[0, i])
+        
+        # Create heatmap with consistent scaling
+        im = ax_heat.imshow(sample_2d, aspect='auto', cmap='Reds', origin='upper', 
+                           vmin=vmin, vmax=vmax, interpolation='nearest')
+        
+        ax_heat.set_title(label, fontsize=12, fontweight='bold', pad=12)
+        ax_heat.set_xlabel('Location', fontsize=11, labelpad=8)
+        if i == 0:
+            ax_heat.set_ylabel('Epiweek', fontsize=11, labelpad=8)
+        
+        # Set ticks with better spacing
+        ax_heat.set_xticks([0, 12, 25, 38, 50])
+        ax_heat.set_xticklabels(['1', '13', '26', '39', '51'])
+        ax_heat.set_yticks([0, 13, 26, 39, 51])
+        ax_heat.set_yticklabels(['1', '14', '27', '40', '52'])
+        
+        # Style heatmap
+        ax_heat.tick_params(axis='both', which='major', labelsize=9, length=3)
+        
+        # Add shared colorbar at the right
+        if i == n_seasons - 1:  # Last subplot
+            cbar_ax = fig.add_axes((0.92, 0.55, 0.015, 0.35))
+            cbar = plt.colorbar(im, cax=cbar_ax)
+            cbar.set_label('Incidence', fontsize=11, labelpad=15)
+            cbar.ax.tick_params(labelsize=9)
+        
+        # Bottom row: National curves (sum across all locations)
+        ax_curve = fig.add_subplot(gs[1, i])
+        
+        national_curve = sample_2d.sum(axis=1)  # Sum across locations for each week
+        weeks = np.arange(1, 53)
+        
+        # Enhanced curve styling
+        ax_curve.plot(weeks, national_curve, color='#C41E3A', linewidth=2.2, 
+                     marker='o', markersize=2.5, markerfacecolor='#C41E3A', 
+                     markeredgecolor='white', markeredgewidth=0.3, alpha=0.9)
+        ax_curve.fill_between(weeks, 0, national_curve, alpha=0.25, color='#C41E3A')
+        
+        ax_curve.set_xlabel('Epiweek', fontsize=11, labelpad=8)
+        if i == 0:
+            ax_curve.set_ylabel('National Incidence', fontsize=11, labelpad=8)
+        
+        ax_curve.set_xlim(1, 52)
+        ax_curve.set_ylim(bottom=0)
+        
+        # Enhanced grid
+        ax_curve.grid(True, alpha=0.3, linewidth=0.5, linestyle='-')
+        ax_curve.set_axisbelow(True)
+        
+        # Professional axis styling
+        ax_curve.spines['top'].set_visible(False)
+        ax_curve.spines['right'].set_visible(False)
+        ax_curve.spines['left'].set_color('#666666')
+        ax_curve.spines['bottom'].set_color('#666666')
+        ax_curve.spines['left'].set_linewidth(0.8)
+        ax_curve.spines['bottom'].set_linewidth(0.8)
+        
+        # Set major ticks
+        ax_curve.set_xticks([1, 13, 26, 39, 52])
+        ax_curve.tick_params(axis='both', which='major', labelsize=9, length=3, 
+                           colors='#333333')
+        
+        # Remove y-tick labels for all but first subplot
+        if i > 0:
+            ax_curve.set_yticklabels([])
+            ax_curve.tick_params(axis='y', which='major', left=False)
+    
+    # Main title with better positioning
+    if title:
+        title = f'Figure 1: Representative Unconditional Influenza Seasons ({n_seasons} samples)'
+        fig.suptitle(title, fontsize=14, fontweight='bold', y=0.96)
+    
+    # Final layout adjustment
+    plt.subplots_adjust(top=0.92, bottom=0.08, left=0.06, right=0.90)
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', 
+                   edgecolor='none', format='png')
+        # Also save as PDF for publication
+        pdf_path = save_path.replace('.png', '.pdf')
+        plt.savefig(pdf_path, dpi=300, bbox_inches='tight', facecolor='white', 
+                   edgecolor='none', format='pdf')
+    
+    plt.show()
+    
+    return fig
+
+if do_sampling:
+    # Custom with specific labels
+    indices_custom = [10, 25, 50]
+    labels_custom = ['(a) Curve A', '(b) Curve B', '(c) Curve C']
+    create_figure_1(samples, dataset, indices=indices_custom, season_labels=labels_custom, 
+                   save_path='figures/fig2_unconditional.png')
+
+
+
+# %%
+# fig, axes = plt.subplots(8, 7, figsize=(16,16), dpi=100)
+# 
+# for ipl in range(51):
+#     ax = axes.flat[ipl]
+#     for i in range(batch_size):
+#         idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax, place=ipl, multi=True)
+
+# %%
+animate = False
+if animate:
+    import matplotlib.animation as animation
+
+    random_index = 53
+# TODO: the reshape shuffles the information
+    fig = plt.figure()
+    ims = []
+    for i in range(ddpm1.timesteps):
+        im = plt.imshow(samples[i][random_index].reshape(image_size, image_size, channels), animated=True)
+        ims.append([im])
+
+    animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
+    animate.save('diffusion.gif')
+    plt.show()
+if animate:
+    plt.ioff()
+    for ts in tqdm(range(0, ddpm1.timesteps, 5)):
+        fig, axes = plt.subplots(8, 8, figsize=(10,10))
+        for ipl in range(51):
+            ax = axes.flat[ipl]
+            for i in range(0,batch_size, 2):
+                idplots.show_tensor_image(dataset.apply_transform_inv(samples[ts][i]), ax = ax, place=ipl)
+        plt.savefig(f'results/{ts}.png')
+        plt.close(fig)
+
+
+
+# %%
 from importlib import reload
 ground_truth = reload(ground_truth)
 if do_inpainting:
@@ -267,117 +527,12 @@ plot_foward_diffusion([x_start[0,:]], ts=[3,8, 50, 100, 150, 199], with_histogra
 if False:
     ddpm1.train(dataloader=dataloader)
 
-# %%
-%ls /work/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/*.pth
 
-# %%
-checkpoint_fn = "influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet500::dataset_R1::trans_Sqrt::enrich_No::800.pth"
-#work with noTT2
-#checkpoint_fn = "/work/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800.pth"
-
-# %%
-model_str = checkpoint_fn.split('/')[-1]
-for part in model_str.split('::')[1:-1]:
-    print(part)
-    tp, val = part.split('_')
-    if tp == 'model':
-        unet_spec = epiframework.model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
-        ddpm1 = unet_spec[val]
-    elif tp == "dataset":
-        dataset_spec = epiframework.dataset_library(gt1=gt1, channels=channels)
-        dataset = dataset_spec[val]
-    elif tp == "trans":
-        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
-        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
-        transform = transforms_spec[val]
-    elif tp == "enrich":
-        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
-        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
-        enrich = transform_enrich[val]
-dataset.add_transform(transform=transform["reg"], transform_inv=transform["inv"], transform_enrich=enrich, bypass_test=False)
-
-# %%
-ddpm1.load_model_checkpoint(checkpoint_fn)
 
 # %%
 if False:
     ddpm1.write_train_checkpoint()
 
-# %% [markdown]
-# ## Sampling (inference)
-# 
-# To sample from the model, we can just use our sample function defined above:
-# 
-
-# %%
-if device == "cuda":
-    print(myutils.cuda_mem_info())
-    torch.cuda.empty_cache() # make sure we don't keep old stuff
-    print(myutils.cuda_mem_info())
-
-# %%
-do_sampling=True
-if do_sampling: 
-    samples = ddpm1.sample()
-    random_index = 0
-    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
-    ax = axes # es.flat[i]
-    idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][random_index]), ax = ax)
-    plt.show()
-    plt.imshow(samples[-1][random_index].reshape(image_size, image_size, channels))
-    plt.show()
-
-# %%
-if do_sampling:
-    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
-    ax = axes # es.flat[i]
-    for i in range(batch_size):
-        idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax)
-    #ax.set_ylim(0,10000)
-
-# %%
-#plt.hist(samples[-1].flatten(), bins = 100);
-#plt.plot(transform_inv(samples[-1][:,0,:,:].sum(axis=2)).T);
-
-# %%
-if do_sampling:
-    # histogram of peaks. In the US historically it's from 13k to 34k
-    plt.hist(transform_inv(samples[-1][:,0,:,:].sum(axis=2)).max(axis=1), bins=30)
-
-# %%
-# fig, axes = plt.subplots(8, 7, figsize=(16,16), dpi=100)
-# 
-# for ipl in range(51):
-#     ax = axes.flat[ipl]
-#     for i in range(batch_size):
-#         idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax, place=ipl, multi=True)
-
-# %%
-animate = False
-if animate:
-    import matplotlib.animation as animation
-
-    random_index = 53
-# TODO: the reshape shuffles the information
-    fig = plt.figure()
-    ims = []
-    for i in range(ddpm1.timesteps):
-        im = plt.imshow(samples[i][random_index].reshape(image_size, image_size, channels), animated=True)
-        ims.append([im])
-
-    animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
-    animate.save('diffusion.gif')
-    plt.show()
-if animate:
-    plt.ioff()
-    for ts in tqdm(range(0, ddpm1.timesteps, 5)):
-        fig, axes = plt.subplots(8, 8, figsize=(10,10))
-        for ipl in range(51):
-            ax = axes.flat[ipl]
-            for i in range(0,batch_size, 2):
-                idplots.show_tensor_image(dataset.apply_transform_inv(samples[ts][i]), ax = ax, place=ipl)
-        plt.savefig(f'results/{ts}.png')
-        plt.close(fig)
 
 # %% [markdown]
 # ## Inpainting (general)
