@@ -7,7 +7,7 @@ import torch
 import epiframework
 import numpy as np
 import pandas as pd
-import nn_blocks, idplots, ddpm, myutils, inpaint_module, ground_truth, epitransforms
+import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth, epitransforms
 import build_dataset, training_datasets
 from torch.utils.data import DataLoader
 from torchvision import transforms
