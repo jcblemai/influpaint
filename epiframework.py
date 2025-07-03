@@ -297,6 +297,57 @@ def transform_library(scaling_per_channel):
     return transforms_spec, transform_enrich
 
 
+def create_all_ddpm_scenarios(experiment_name, image_size, channels, epoch, device, batch_size, gt1):
+    unet_spec = model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
+    dataset_spec = dataset_library(gt1=gt1, channels=channels)
+
+    this_scn_id = 0
+    all_ddpm_scenarios = []
+    
+    for unet_name, unet in unet_spec.items():
+        for dataset_name, dataset in dataset_spec.items():
+            scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
+            transforms_spec, transform_enrich = transform_library(scaling_per_channel=scaling_per_channel)
+            for transform_name, transform in transforms_spec.items():
+                for enrich_name, enrich in transform_enrich.items():
+                    scenarios_strid = f"i{this_scn_id}::model_{unet_name}::dataset_{dataset_name}::trans_{transform_name}::enrich_{enrich_name}"
+                    scenarios_config = {
+                        "experiment_name": experiment_name,
+                        "scenarios_strid": scenarios_strid,
+                        "scenarios_id": this_scn_id,
+                        "unet_name": unet_name,
+                        "dataset_name": dataset_name,
+                        "transform_name": transform_name,
+                        "enrich_name": enrich_name,
+                        "unet": unet,
+                        "dataset": dataset,
+                        "transform": transform,
+                        "enrich": enrich,
+                        "scaling_per_channel": scaling_per_channel
+                    }
+                    all_ddpm_scenarios.append(scenarios_config)
+                    this_scn_id += 1
+    print(f"Total number of DDPM scenarios: {len(all_ddpm_scenarios)}")
+    return all_ddpm_scenarios
+
+def create_all_inpainting_scenarios(experiment_name, n_diffusion_steps):
+    this_scn_id = 0
+    all_inpainting_scenarios = []
+    for conf_name, conf in copaint_config_library(n_diffusion_steps).items():
+        scenarios_strid = f"i{this_scn_id}::conf_{conf_name}"
+        scenarios_config = {
+            "experiment_name": experiment_name,
+            "scenarios_strid": scenarios_strid,
+            "conf_name": conf_name,
+            "config": conf
+        }
+        all_inpainting_scenarios.append(scenarios_config)
+        this_scn_id += 1
+    print(f"Total number of inpainting scenarios: {len(all_inpainting_scenarios)}")
+    return all_inpainting_scenarios
+
+
+
 def create_run_config(run_id, specifications):
 
     if setup.scale == 'Regions':
