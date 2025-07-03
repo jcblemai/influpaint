@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 import pandas as pd
 import build_dataset, training_datasets
-import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth
+import nn_blocks, idplots, ddpm, myutils, inpaint_module, ground_truth
 
 import sys
 sys.path.append('CoPaint4influpaint')
