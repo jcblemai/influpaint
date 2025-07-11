@@ -109,57 +109,72 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
                     print(f"❌ Only {len(unique_locations)} locations (need ≥{min_locations})")
                     continue
                 
-                # Determine trajectory ID column based on round
-                if 'stochastic_run' in trajectory_df.columns:
-                    # Round 5 format
-                    trajectory_id_col = 'stochastic_run'
-                    trajectory_df = trajectory_df.dropna(subset=[trajectory_id_col])
-                else:
-                    # Round 4 format
-                    trajectory_id_col = 'output_type_id'
-                    trajectory_df = trajectory_df.dropna(subset=[trajectory_id_col])
+                # Create composite trajectory ID from available columns
+                trajectory_id_parts = []
                 
-                # Convert trajectories to DataFrame format by scenario
+                # Add run_grouping if available
+                if 'run_grouping' in trajectory_df.columns:
+                    trajectory_id_parts.append(trajectory_df['run_grouping'].fillna('NA').astype(str))
+                
+                # Add output_type_id if available and not all null
+                if 'output_type_id' in trajectory_df.columns and trajectory_df['output_type_id'].notna().any():
+                    trajectory_id_parts.append(trajectory_df['output_type_id'].fillna('NA').astype(str))
+                elif 'output_type_id' in trajectory_df.columns:
+                    # If output_type_id exists but is all null, add 'NA'
+                    trajectory_id_parts.append('NA')
+                
+                # Add stochastic_run if available
+                if 'stochastic_run' in trajectory_df.columns:
+                    trajectory_id_parts.append(trajectory_df['stochastic_run'].fillna('NA').astype(str))
+                
+                # Create composite trajectory ID
+                if trajectory_id_parts:
+                    trajectory_df['trajectory_id'] = trajectory_id_parts[0]
+                    for part in trajectory_id_parts[1:]:
+                        trajectory_df['trajectory_id'] = trajectory_df['trajectory_id'] + '_' + part
+                    trajectory_id_col = 'trajectory_id'
+                else:
+                    print(f"❌ No valid trajectory ID columns found")
+                    continue
+                
+                # Convert trajectories to DataFrame format by scenario (optimized)
                 scenario_dfs = {}
                 
                 for scenario_id in trajectory_df['scenario_id'].unique():
-                    scenario_data = trajectory_df[trajectory_df['scenario_id'] == scenario_id]
+                    scenario_data = trajectory_df[trajectory_df['scenario_id'] == scenario_id].copy()
                     
-                    # Get unique trajectory IDs for this scenario
-                    trajectory_ids = scenario_data[trajectory_id_col].unique()
+                    # Vectorized processing - much faster than looping
+                    # Create week_enddate from origin_date + horizon
+                    scenario_data['week_enddate'] = pd.to_datetime(scenario_data['origin_date']) + pd.to_timedelta(scenario_data['horizon'], unit='W')
                     
-                    # Convert each trajectory to DataFrame rows
-                    scenario_trajectory_dfs = []
-                    for traj_id in trajectory_ids:
-                        traj_data = scenario_data[scenario_data[trajectory_id_col] == traj_id].copy()
-                        
-                        # Create week_enddate from origin_date + horizon (same as existing code)
-                        traj_data['week_enddate'] = pd.to_datetime(traj_data['origin_date']) + pd.to_timedelta(traj_data['horizon'], unit='W')
-                        
-                        # Add sample identifier (just the trajectory ID, not scenario)
-                        traj_data['sample'] = traj_id
-                        
-                        # Rename location column to match expected format
-                        traj_data = traj_data.rename(columns={'location': 'location_code'})
-                        
-                        # Select only needed columns
-                        traj_subset = traj_data[['week_enddate', 'location_code', 'sample', 'value']].copy()
-                        
-                        scenario_trajectory_dfs.append(traj_subset)
+                    # Add sample identifier (use the trajectory ID as sample)
+                    scenario_data['sample'] = scenario_data[trajectory_id_col].astype(str)
                     
-                    # Combine trajectories for this scenario
-                    if scenario_trajectory_dfs:
-                        scenario_df = pd.concat(scenario_trajectory_dfs, ignore_index=True)
-                        
-                        # Add season columns using dataset_mixer if season_setup provided
-                        if season_setup is not None:
-                            from dataset_mixer import add_season_columns
-                            scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
-                        
-                        scenario_dfs[scenario_id] = scenario_df
-                        
-                        n_trajectories = scenario_df['sample'].nunique()
-                        n_timepoints = scenario_df.groupby('sample')['week_enddate'].nunique().mean()
+                    # Rename location column to match expected format
+                    scenario_data = scenario_data.rename(columns={'location': 'location_code'})
+                    
+                    # Select needed columns including trajectory ID components
+                    columns_to_keep = ['week_enddate', 'location_code', 'sample', 'value']
+                    
+                    # Add trajectory ID components if they exist
+                    if 'run_grouping' in scenario_data.columns:
+                        columns_to_keep.append('run_grouping')
+                    if 'output_type_id' in scenario_data.columns:
+                        columns_to_keep.append('output_type_id')
+                    if 'stochastic_run' in scenario_data.columns:
+                        columns_to_keep.append('stochastic_run')
+                    
+                    scenario_df = scenario_data[columns_to_keep].copy()
+                    
+                    # Add season columns using dataset_mixer if season_setup provided
+                    if season_setup is not None:
+                        from dataset_mixer import add_season_columns
+                        scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
+                    
+                    scenario_dfs[scenario_id] = scenario_df
+                    
+                    n_trajectories = scenario_df['sample'].nunique()
+                    n_timepoints = scenario_df.groupby('sample')['week_enddate'].nunique().mean()
                 
                 # Store scenario DataFrames
                 if scenario_dfs:

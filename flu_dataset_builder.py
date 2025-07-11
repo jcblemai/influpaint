@@ -1,10 +1,27 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: diffusion_torch
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # ## Dataset format for Influpaint
 # The dataset is a xarray object stored as netcdf on disk. It has dimensions `(sample, feature, date, place)` where date and place are padded to have dimension 64.
 # - dates are Saturdays
 # - places are location from Flusight data locations. The sum of all places (whole U.S) is not included at that stage
 # - samples are integers
-# 
+#
 
 # %%
 import pandas as pd
@@ -30,7 +47,22 @@ else:
 
 # %%
 importlib.reload(build_dataset)
-build_dataset.extract_flu_scenario_hub_trajectories(min_locations=45)
+smh_traj = build_dataset.extract_flu_scenario_hub_trajectories(min_locations=45)
+
+# %%
+smh_traj['round4_MOBS_NEU-GLEAM_FLU']['A-2023-08-14']
+
+# %%
+smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01']
+
+# %%
+smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01']['sample'].unique()
+
+# %%
+smh_traj['round5_MOBS_NEU-GLEAM_FLU']['A-2023-08-14'])
+
+# %%
+223600/100/52
 
 # %% [markdown]
 # ## 0. Read NC data
@@ -174,6 +206,9 @@ location_codes = combined_df.location_code.unique()
 print(f"generated {len(final_frames)} frames from {len(seasons)} seasons and {len(location_codes)} locations in datasets {dict_of_dfs.keys()}")
 
 # %%
+smh_df.columns
+
+# %%
 combined_df
 
 # %%
@@ -250,7 +285,7 @@ flu_payload_array.to_netcdf(f"training_datasets/NC_Flusight_{today}.nc")
 # aws s3 sync s3://idd-inference-runs/USA-20220923T161418/model_output/ datasets/SMH_R1/SMH_R1_highVac_pesImm_2022 --exclude "*" --include "hosp*/final/*"
 # ```
 # and take a humidity file from the config
-# 
+#
 
 # %%
 
@@ -442,14 +477,14 @@ for locations_code in season_setup.locations_df.location_code:
 # [9:49 AM] Prior Peaks: are based on the minimum and maximum observed in national data in the 8 pre-pandemic seasons 2012-2020, converted to state-level estimates.
 # The estimates for incident are based on weekly peaks, and for cumulative based on cumulative hospitalizations at the end of the season.
 # ```
-# 
+#
 # So on R you do:
 # ```R
 # source("~/Documents/phd/COVIDScenarioPipeline/Flu_USA/R/groundtruth_functions.R")
 # flus_surv <- get_flu_groundtruth(source="flusurv_hosp", "2015-10-10", "2022-06-11", age_strat = FALSE, daily = FALSE)
 # flus_surv %>% write_csv("flu_surv_cspGT.csv")
 # ```
-# 
+#
 # This is the only dataset where the scaling is good
 
 # %%
@@ -509,7 +544,7 @@ col2keep = ['incidH_FluA', 'incidH_FluB']
 # aws s3 sync s3://idd-inference-runs/USA-20220923T161418/model_output/ datasets/SMH_R1/SMH_R1_highVac_pesImm_2022 --exclude "*" --include "hosp*/final/*"
 # ```
 # and take a humidity file from the config
-# 
+#
 
 # %%
 humid = pd.read_csv('datasets/SMH_R1/SMH_R1_lowVac_optImm_2022/r0s_ts_2022-2023.csv', index_col='date', parse_dates=True)
