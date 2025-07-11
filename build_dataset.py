@@ -12,6 +12,177 @@ def padto64x64(x: np.ndarray) -> np.ndarray:
         constant_values=0,
     )
 
+def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influpaint/Flusight", 
+                                        target="inc hosp", 
+                                        age_group="0-130",
+                                        min_locations=10,
+                                        season_setup=None):
+    """
+    Extract trajectories from flu scenario modeling hub archive data.
+    
+    Parameters:
+    -----------
+    base_path : str
+        Base path to the Flusight directory
+    target : str
+        Target to extract (e.g., "inc hosp", "inc death")
+    age_group : str
+        Age group to extract (default: "0-130")
+    min_locations : int
+        Minimum number of locations required (to filter out state-only models)
+        
+    Returns:
+    --------
+    dict
+        Dictionary with keys like "round4_CADPH-FluCAT" and "round5_CADPH-FluCAT"
+        Each value is a dict with scenario_id keys containing arrays of trajectories
+    """
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+    
+    trajectory_data = {}
+    
+    # Process both rounds
+    for round_num in [4, 5]:
+        round_path = Path(base_path) / f"flu-scenario-modeling-hub_archive-round{round_num}" / "data-processed"
+        
+        if not round_path.exists():
+            print(f"Warning: Round {round_num} path does not exist: {round_path}")
+            continue
+            
+        print(f"\n=== Processing Round {round_num} ===")
+        
+        # Find all team-model directories
+        team_model_dirs = [d for d in round_path.iterdir() if d.is_dir() and not d.name.startswith('.')]
+        
+        for team_model_dir in team_model_dirs:
+            team_model_name = team_model_dir.name
+            
+            # Skip example models and non-team directories
+            if team_model_name in ['MyTeam-MyModel']:
+                continue
+                
+            print(f"Processing {team_model_name}...", end=" ")
+            
+            # Find parquet files in this directory
+            parquet_files = list(team_model_dir.glob("*.parquet")) + list(team_model_dir.glob("*.gz.parquet"))
+            
+            if not parquet_files:
+                print(f"❌ No parquet files found")
+                continue
+            
+            # Try to find a file with trajectories (sample output type)
+            trajectory_file = None
+            for parquet_file in parquet_files:
+                try:
+                    # Quick check if this file has trajectories
+                    df_sample = pd.read_parquet(parquet_file, columns=['output_type'])
+                    if 'sample' in df_sample['output_type'].values:
+                        trajectory_file = parquet_file
+                        break
+                except Exception:
+                    continue
+                    
+            if trajectory_file is None:
+                print(f"❌ No trajectory data found")
+                continue
+            
+            try:
+                # Read the parquet file
+                df = pd.read_parquet(trajectory_file)
+                
+                # Filter for trajectories (sample output type)
+                trajectory_df = df[
+                    (df['output_type'] == 'sample') & 
+                    (df['target'] == target) & 
+                    (df['age_group'] == age_group)
+                ].copy()
+                
+                if trajectory_df.empty:
+                    print(f"❌ No trajectories found for target='{target}', age_group='{age_group}'")
+                    continue
+                
+                # Check if model covers enough locations (filter out state-only models)
+                unique_locations = trajectory_df['location'].unique()
+                if len(unique_locations) < min_locations:
+                    print(f"❌ Only {len(unique_locations)} locations (need ≥{min_locations})")
+                    continue
+                
+                # Determine trajectory ID column based on round
+                if 'stochastic_run' in trajectory_df.columns:
+                    # Round 5 format
+                    trajectory_id_col = 'stochastic_run'
+                    trajectory_df = trajectory_df.dropna(subset=[trajectory_id_col])
+                else:
+                    # Round 4 format
+                    trajectory_id_col = 'output_type_id'
+                    trajectory_df = trajectory_df.dropna(subset=[trajectory_id_col])
+                
+                # Convert trajectories to DataFrame format by scenario
+                scenario_dfs = {}
+                
+                for scenario_id in trajectory_df['scenario_id'].unique():
+                    scenario_data = trajectory_df[trajectory_df['scenario_id'] == scenario_id]
+                    
+                    # Get unique trajectory IDs for this scenario
+                    trajectory_ids = scenario_data[trajectory_id_col].unique()
+                    
+                    # Convert each trajectory to DataFrame rows
+                    scenario_trajectory_dfs = []
+                    for traj_id in trajectory_ids:
+                        traj_data = scenario_data[scenario_data[trajectory_id_col] == traj_id].copy()
+                        
+                        # Create week_enddate from origin_date + horizon (same as existing code)
+                        traj_data['week_enddate'] = pd.to_datetime(traj_data['origin_date']) + pd.to_timedelta(traj_data['horizon'], unit='W')
+                        
+                        # Add sample identifier (just the trajectory ID, not scenario)
+                        traj_data['sample'] = traj_id
+                        
+                        # Rename location column to match expected format
+                        traj_data = traj_data.rename(columns={'location': 'location_code'})
+                        
+                        # Select only needed columns
+                        traj_subset = traj_data[['week_enddate', 'location_code', 'sample', 'value']].copy()
+                        
+                        scenario_trajectory_dfs.append(traj_subset)
+                    
+                    # Combine trajectories for this scenario
+                    if scenario_trajectory_dfs:
+                        scenario_df = pd.concat(scenario_trajectory_dfs, ignore_index=True)
+                        
+                        # Add season columns using dataset_mixer if season_setup provided
+                        if season_setup is not None:
+                            from dataset_mixer import add_season_columns
+                            scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
+                        
+                        scenario_dfs[scenario_id] = scenario_df
+                        
+                        n_trajectories = scenario_df['sample'].nunique()
+                        n_timepoints = scenario_df.groupby('sample')['week_enddate'].nunique().mean()
+                
+                # Store scenario DataFrames
+                if scenario_dfs:
+                    key = f"round{round_num}_{team_model_name}"
+                    trajectory_data[key] = scenario_dfs
+                    
+                    total_trajectories = sum(df['sample'].nunique() for df in scenario_dfs.values())
+                    print(f"✅ {total_trajectories} trajectories across {len(scenario_dfs)} scenarios")
+                else:
+                    print(f"❌ No valid trajectories extracted")
+                    
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                continue
+    
+    print(f"\n=== Summary ===")
+    print(f"Successfully processed {len(trajectory_data)} model-round combinations:")
+    for key in sorted(trajectory_data.keys()):
+        scenario_dfs = trajectory_data[key]
+        total_trajectories = sum(df['sample'].nunique() for df in scenario_dfs.values())
+        print(f"  {key}: {len(scenario_dfs)} scenarios, {total_trajectories} trajectories")
+    
+    return trajectory_data
 
 
 def dataframe_to_xarray(

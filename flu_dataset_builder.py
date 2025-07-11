@@ -16,6 +16,7 @@ from season_setup import SeasonSetup
 import build_dataset
 import epiweeks
 import warnings
+import importlib
 import tqdm
 import dataset_mixer
 season_setup = SeasonSetup.from_flusight(fluseason_startdate=pd.to_datetime("2020-08-01"), 
@@ -26,6 +27,10 @@ if download:
     write=True
 else:
     write=False
+
+# %%
+importlib.reload(build_dataset)
+build_dataset.extract_flu_scenario_hub_trajectories(min_locations=45)
 
 # %% [markdown]
 # ## 0. Read NC data
