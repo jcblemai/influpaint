@@ -195,7 +195,13 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
     for key in sorted(trajectory_data.keys()):
         scenario_dfs = trajectory_data[key]
         total_trajectories = sum(df['sample'].nunique() for df in scenario_dfs.values())
-        print(f"  {key}: {len(scenario_dfs)} scenarios, {total_trajectories} trajectories")
+        
+        # Get unique locations and dates from first scenario (should be same across scenarios)
+        first_scenario_df = next(iter(scenario_dfs.values()))
+        n_locations = first_scenario_df['location_code'].nunique()
+        n_dates = first_scenario_df['week_enddate'].nunique()
+        
+        print(f"  {key}: {len(scenario_dfs)} scenarios, {total_trajectories} trajectories, {n_locations} locations, {n_dates} dates")
     
     return trajectory_data
 
