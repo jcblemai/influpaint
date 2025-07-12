@@ -3,21 +3,6 @@ import pandas as pd
 import math
 from typing import Union
 
-def add_season_columns(df, season_setup, do_fluseason_year=True, do_epiweek=False):
-    assert "week_enddate" in df.columns, "DataFrame must contain 'week_enddate' column"
-    
-    df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
-    df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_season_week))
-    
-    if do_epiweek:
-        import epiweeks
-        df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
-    
-    if do_fluseason_year:
-        df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
-
-    return df
-
 # locations, in the right order
 class SeasonSetup:
     """ 
@@ -216,7 +201,6 @@ class SeasonSetup:
         
         return pd.DataFrame(calendar_data)
 
-
     def get_location_name(self, location_code):
         if pd.isna(location_code):
             return "NA"
@@ -237,10 +221,28 @@ class SeasonSetup:
     def reorder_locations(self, ordered_list):
         self.locations_df = self.locations_df[self.locations_df["location_code"].isin(ordered_list)]
         self.locations = ordered_list
+
+    def add_season_columns(self, df,  do_fluseason_year=True, do_epiweek=False):
+        assert "week_enddate" in df.columns, "DataFrame must contain 'week_enddate' column"
         
+        df = df.assign(fluseason_fraction=df["week_enddate"].apply(self.get_fluseason_fraction))
+        df = df.assign(season_week=df["week_enddate"].apply(self.get_season_week))
+        
+        if do_epiweek:
+            import epiweeks
+            df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
+        
+        if do_fluseason_year:
+            df = df.assign(fluseason=df["week_enddate"].apply(self.get_fluseason_year))
+
+        return df
 
     
 def get_season_year(ts, start_month: int, start_day: int):
+    # Handle NaT/NaN values
+    if pd.isna(ts):
+        return float('nan')
+        
     if isinstance(ts, datetime.datetime):
         ts = ts.date()
 
@@ -251,6 +253,10 @@ def get_season_year(ts, start_month: int, start_day: int):
 
 
 def get_season_fraction(ts, start_month: int, start_day: int):
+    # Handle NaT/NaN values
+    if pd.isna(ts):
+        return float('nan')
+        
     if isinstance(ts, datetime.datetime):
         ts = ts.date()
     
@@ -305,6 +311,10 @@ def get_season_week(ts: Union[str, datetime.date, datetime.datetime],
     >>> get_season_week("2023-07-30")  # before season start
     1
     """
+
+    # Handle NaT/NaN values
+    if pd.isna(ts):
+        return float('nan')
 
     if isinstance(ts, str):
         ts = datetime.datetime.strptime(ts, "%Y-%m-%d").date()
