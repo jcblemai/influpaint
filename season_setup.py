@@ -92,65 +92,32 @@ class SeasonSetup:
         self.locations = self.locations_df["location_code"].to_list()
     
     @classmethod
-    def from_flusight(
+    def for_flusight(
         cls,
         location_filepath=None,
-        season_first_year=None,
-        fluseason_startdate=None,
-        season_start_month=None,
-        season_start_day=None,
+        season_start_month=8,
+        season_start_day=1,
         remove_territories=False,
         remove_us=False,
     ):
-        if location_filepath is None:
-            if season_first_year == "2022":
-                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv"
-            elif season_first_year == "2023":
-                location_filepath = "Flusight/2023-2024/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
-            elif season_first_year == "2024":
-                location_filepath = "Flusight/2024-2025/FluSight-forecast-hub-official/auxiliary-data/locations.csv"
-            elif season_first_year is None:
-                print("No season nor file provided, loading 2022-2023 locations information")
-                # 2022-2023 contains virgin islands, 2023-2024 does not. THourgh then population are not up to date.
-                location_filepath = "Flusight/2022-2023/FluSight-forecast-hub-official/data-locations/locations.csv"
-            else:
-                raise ValueError(f"unreconized season {season_first_year}")
+        location_filepath = "influpaint_locations.csv" if location_filepath is None else location_filepath
         
-        # Handle legacy fluseason_startdate parameter vs new month/day parameters
-        if season_start_month is not None and season_start_day is not None:
-            # Use explicit month/day parameters
-            pass
-        elif fluseason_startdate is not None:
-            # Extract from legacy parameter
-            season_start_month = fluseason_startdate.month
-            season_start_day = fluseason_startdate.day
-        else:
-            # Default values
-            season_start_month = 8
-            season_start_day = 1
-
-        flusight_locations = pd.read_csv(
+        influpaint_locations = pd.read_csv(
             location_filepath,
-            converters={"location": lambda x: str(x).strip()},
+            converters={"location_code": lambda x: str(x).strip(), "geoid": lambda x: str(x).strip()},
             skipinitialspace=True,
         )
-        flusight_locations["geoid"] = flusight_locations["location"] + "000"
-
-        flusight_locations["location_code"] = flusight_locations[
-            "location"
-        ]  # "location" collides with datasets column name
-        flusight_locations.drop(columns=["location"], inplace=True)
+        
         to_remove = []
         if remove_territories:
-            to_remove += ["72", "78", "60", "66", "69"]
+            to_remove += ["72", "60", "66", "69"] # Virgin Island would be 78, but not in the file
         if remove_us:
             to_remove += ["US"]
 
-        flusight_locations = remove_locations(location_list=to_remove, locations_df=flusight_locations)
+        influpaint_locations = influpaint_locations[~influpaint_locations["location_code"].isin(to_remove)]
 
-        flusight_locations = flusight_locations[["abbreviation", "location_name", "population", "location_code", "geoid"]]
         return cls(
-            locations=flusight_locations, season_start_month=season_start_month, season_start_day=season_start_day
+            locations=influpaint_locations, season_start_month=season_start_month, season_start_day=season_start_day
         )
 
     def get_fluseason_year(self, ts):
@@ -271,9 +238,6 @@ class SeasonSetup:
         self.locations_df = self.locations_df[self.locations_df["location_code"].isin(ordered_list)]
         self.locations = ordered_list
         
-
-def remove_locations(location_list, locations_df):
-    return locations_df[~locations_df["location_code"].isin(location_list)]
 
     
 def get_season_year(ts, start_month: int, start_day: int):
