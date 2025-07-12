@@ -43,8 +43,6 @@ class SeasonSetup:
 
         if "location_name" not in self.locations_df.columns:
             self.locations_df["location_name"] = self.locations_df["location_code"]
-        if "location_name" not in self.locations_df.columns:
-            self.locations_df["location_name"] = self.locations_df["location_code"]
         self.locations = self.locations_df["location_code"].to_list()
     
     @classmethod
@@ -71,7 +69,7 @@ class SeasonSetup:
                 raise ValueError(f"unreconized season {season_first_year}")
         
         if fluseason_startdate is None:
-            fluseason_startdate = pd.to_datetime(f"{season_first_year}-08-01")
+            fluseason_startdate = pd.to_datetime(f"2020-08-01")
 
         flusight_locations = pd.read_csv(
             location_filepath,
@@ -105,14 +103,9 @@ class SeasonSetup:
     
     def get_fluseason_week(self, ts):
         return get_season_week(ts, start_month=self.fluseason_startdate.month, 
-                                   start_day=self.fluseason_startdate.day)
-    def get_dates(self):
-        return pd.date_range(
-            start=self.fluseason_startdate,
-            end=self.fluseason_startdate + datetime.timedelta(years=1),
-            freq="W-SAT",
-        )
-    
+                                start_day=self.fluseason_startdate.day)
+
+
     def get_location_name(self, location_code):
         if pd.isna(location_code):
             return "NA"
@@ -154,8 +147,6 @@ def get_season_year(ts, start_date):
         return ts.year - 1
 
 
-
-
 def get_season_fraction(ts, start_date):
     if ts.dayofyear >= start_date.dayofyear:
         return (ts.dayofyear - start_date.dayofyear) / 365
@@ -165,14 +156,32 @@ def get_season_fraction(ts, start_date):
 
 def get_season_week(ts, start_month=8, start_day=1):
     """
-    Calculate the season week (1-53) based on days elapsed since August 1st
-    TODO: this may be improved by making sure we use the closest date.
-
+    Calculate flu season week number using fixed 7-day bins from season start.
+    
+    This function provides consistent temporal alignment across flu seasons by using
+    fixed calendar-based week boundaries. The same calendar date will always map to
+    the same week number across different flu seasons, ensuring perfect alignment
+    for seasonal comparisons and array-based modeling.
+    
+    Week boundaries:
+    - Week 1: August 1-7
+    - Week 2: August 8-14
+    - ...
+    - Week 52/53: Depends on season length (365 vs 366 days)
+    
     Args:
-        ts (date or datetime): Date to convert
+        ts (date or datetime): Date to convert to season week
+        start_month (int): Season start month (default: 8 for August)
+        start_day (int): Season start day (default: 1)
 
     Returns:
-        int: Season week number (1-53)
+        int: Season week number (1-based), typically 1-52 or 1-53
+        
+    Example:
+        >>> get_season_week(datetime.date(2023, 8, 10))  # August 10th
+        2
+        >>> get_season_week(datetime.date(2024, 8, 10))  # August 10th next year
+        2  # Same week number - perfect alignment!
     """
 
     # Convert to date if datetime is passed
