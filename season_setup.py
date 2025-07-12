@@ -7,7 +7,7 @@ def add_season_columns(df, season_setup, do_fluseason_year=True, do_epiweek=Fals
     assert "week_enddate" in df.columns, "DataFrame must contain 'week_enddate' column"
     
     df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
-    df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_fluseason_week))
+    df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_season_week))
     
     if do_epiweek:
         import epiweeks
@@ -116,9 +116,95 @@ class SeasonSetup:
     def get_fluseason_fraction(self, ts):
         return get_season_fraction(ts, self.fluseason_startdate)
     
-    def get_fluseason_week(self, ts):
+
+    
+    # === SEASON WEEK (abstract temporal coordinate like epiweek) ===
+    def get_season_week(self, ts) -> int:
+        """
+        Get season week number (like epiweek but for flu seasons).
+        
+        Maps dates to week numbers using fixed 7-day bins from season start.
+        This is the primary temporal coordinate for arrays and seasonal alignment.
+        Can return 1-53 depending on calendar alignment.
+        
+        Args:
+            ts: Date to convert
+            
+        Returns:
+            int: Season week number (1-53)
+        """
         return get_season_week(ts, start_month=self.fluseason_startdate.month, 
-                                start_day=self.fluseason_startdate.day)
+                            start_day=self.fluseason_startdate.day)
+    
+    # === CONCRETE CALENDAR MAPPING (for forecasting) ===
+    def get_week_dates(self, season_year: int, week_number: int) -> tuple[datetime.date, datetime.date]:
+        """
+        Get actual start and end dates for a specific week in a specific season.
+        
+        Args:
+            season_year: The year the flu season starts (e.g., 2023 for 2023-2024 season)
+            week_number: Season week number (1-53)
+            
+        Returns:
+            tuple: (start_date, end_date) for that week
+        """
+        season_start = datetime.date(season_year, self.fluseason_startdate.month, self.fluseason_startdate.day)
+        week_start = season_start + datetime.timedelta(days=(week_number - 1) * 7)
+        week_end = week_start + datetime.timedelta(days=6)
+        return week_start, week_end
+    
+    def week_to_saturday(self, season_year: int, week_number: int) -> datetime.date:
+        """
+        Get the Saturday date for a specific season week in a specific year.
+        
+        Args:
+            season_year: The year the flu season starts
+            week_number: Season week number (1-53)
+            
+        Returns:
+            datetime.date: The Saturday of that week
+        """
+        week_start, week_end = self.get_week_dates(season_year, week_number)
+        
+        # Find the Saturday in this week
+        for day_offset in range(7):
+            candidate = week_start + datetime.timedelta(days=day_offset)
+            if candidate.weekday() == 5:  # Saturday is weekday 5
+                return candidate
+        
+        # If no Saturday in the week range, return the last day
+        return week_end
+    
+    def get_season_calendar(self, season_year: int) -> pd.DataFrame:
+        """
+        Get full calendar mapping for a specific flu season.
+        
+        Args:
+            season_year: The year the flu season starts
+            
+        Returns:
+            pd.DataFrame: Calendar with [season_week, start_date, end_date, saturday]
+        """
+        calendar_data = []
+        
+        # Generate up to 53 weeks
+        for week_num in range(1, 54):
+            start_date, end_date = self.get_week_dates(season_year, week_num)
+            saturday = self.week_to_saturday(season_year, week_num)
+            
+            # Stop if we've gone past the end of the season
+            next_season_start = datetime.date(season_year + 1, self.fluseason_startdate.month, self.fluseason_startdate.day)
+            if start_date >= next_season_start:
+                break
+                
+            calendar_data.append({
+                'season_week': week_num,
+                'start_date': start_date,
+                'end_date': end_date,
+                'saturday': saturday
+            })
+        
+        return pd.DataFrame(calendar_data)
 
 
     def get_location_name(self, location_code):
