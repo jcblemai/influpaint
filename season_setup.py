@@ -1,13 +1,17 @@
 import datetime
 import pandas as pd
 import math
-import epiweeks
+from typing import Union
 
-
-def add_season_columns(df, season_setup, do_fluseason_year=True):
+def add_season_columns(df, season_setup, do_fluseason_year=True, do_epiweek=False):
+    assert "week_enddate" in df.columns, "DataFrame must contain 'week_enddate' column"
+    
     df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
     df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_fluseason_week))
-    df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
+    
+    if do_epiweek:
+        import epiweeks
+        df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
     
     if do_fluseason_year:
         df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
@@ -160,53 +164,59 @@ def get_season_fraction(ts, start_date):
         return ((ts.dayofyear + 365) - start_date.dayofyear) / 365
     
 
-def get_season_week(ts, start_month=8, start_day=1):
+def get_season_week(ts: Union[str, datetime.date, datetime.datetime],
+                    start_month: int = 8, 
+                    start_day: int = 1) -> int:
     """
-    Calculate flu season week number using fixed 7-day bins from season start.
-    
-    This function provides consistent temporal alignment across flu seasons by using
-    fixed calendar-based week boundaries. The same calendar date will always map to
-    the same week number across different flu seasons, ensuring perfect alignment
-    for seasonal comparisons and array-based modeling.
-    
-    Week boundaries:
-    - Week 1: August 1-7
-    - Week 2: August 8-14
-    - ...
-    - Week 52/53: Depends on season length (365 vs 366 days)
-    
-    Args:
-        ts (date or datetime): Date to convert to season week
-        start_month (int): Season start month (default: 8 for August)
-        start_day (int): Season start day (default: 1)
+    Calculate the flu-season week number using fixed 7-day bins from season start.
 
-    Returns:
-        int: Season week number (1-based), typically 1-52 or 1-53
-        
-    Example:
-        >>> get_season_week(datetime.date(2023, 8, 10))  # August 10th
-        2
-        >>> get_season_week(datetime.date(2024, 8, 10))  # August 10th next year
-        2  # Same week number - perfect alignment!
+    This function assigns a 1-based week number relative to a season defined
+    by its start date (default: August 1). Each week corresponds to a
+    contiguous 7-day period since the season start.
+    All dates before the official start are clamped to Week 1.
+
+    Parameters
+    ----------
+    ts : str or datetime.date or datetime.datetime
+        The date to be converted. Strings must follow 'YYYY-MM-DD' format.
+    start_month : int, optional
+        Month that marks the beginning of the flu season, by default 8.
+    start_day : int, optional
+        Day of the start month that begins the flu season, by default 1.
+
+    Returns
+    -------
+    int
+        The week number within the flu season (1–53).
+
+    Notes
+    -----
+    - A 365-day non-leap year yields 52 weeks plus 1 day (partial week).
+    - A leap year yields a possible week 53 if the season crosses Feb 29.
+    - Weeks are fixed 7-day bins. E.g., Week 1 = Aug 1–7, Week 2 = Aug 8–14, etc.
+
+    Examples
+    --------
+    >>> get_season_week("2023-08-01")
+    1
+    >>> get_season_week(datetime.date(2023, 8, 10))
+    2
+    >>> get_season_week("2023-07-30")  # before season start
+    1
     """
 
-    # Convert to date if datetime is passed
-    if isinstance(ts, datetime.datetime):
+    if isinstance(ts, str):
+        ts = datetime.datetime.strptime(ts, "%Y-%m-%d").date()
+    elif isinstance(ts, datetime.datetime):
         ts = ts.date()
 
-    if ts.month > start_month or (ts.month == start_month and ts.day >= start_day):
-        season_start = datetime.date(ts.year, start_month, start_day)
-    else:
-        season_start = datetime.date(ts.year - 1, start_month, start_day)
+    year = ts.year
+    start = datetime.date(year, start_month, start_day)
+    if ts < start:
+        start = datetime.date(year - 1, start_month, start_day)
 
-    # Calculate days elapsed
-    days_elapsed = (ts - season_start).days
-    if days_elapsed > 365:
-        print(f"Warning: days elapsed is {days_elapsed}, this should not happen")
-        print(f"ts: {ts}, season_start: {season_start}")
-        print(f"start_month: {start_month}, start_day: {start_day}")
-
-    # Calculate week number (1-based, ensuring it never exceeds 53)
-    return math.floor(days_elapsed / 7) + 1
+    days_elapsed = (ts - start).days
+    week = math.floor(days_elapsed / 7) + 1
+    return max(1, week)
 
 
