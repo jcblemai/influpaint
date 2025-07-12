@@ -36,14 +36,177 @@ import warnings
 import importlib
 import tqdm
 import dataset_mixer
-season_setup = SeasonSetup.from_flusight(fluseason_startdate=pd.to_datetime("2020-08-01"), 
-                                        remove_territories=True, remove_us=True)
+season_setup = SeasonSetup.for_flusight(remove_us=True, remove_territories=True)
 
 download=False
 if download:
     write=True
 else:
     write=False
+
+# %% [markdown]
+# ## A. Surveillance Datasets
+
+# %% [markdown]
+# ### A.1. Delphi-epidata FluSurv
+
+# %%
+flusurv = build_dataset.get_from_epidata(dataset="flusurv",
+                                        season_setup=season_setup, 
+                                        download=download, 
+                                        write=write,
+                                        clean=False)
+flusurv_clean = build_dataset.clean_dataset(flusurv, season_setup=season_setup)
+flusurv_clean = season_setup.add_season_columns(flusurv_clean, do_fluseason_year=False)
+
+
+# %%
+flusurv
+
+# %%
+fig, axes = plt.subplots(5, 4, sharex=True, figsize=(15,15))
+flusurv_piv  = flusurv_clean.pivot(columns='location_code', values='value', index="week_enddate")
+for idx, pl in enumerate(flusurv_piv.columns):
+    ax = axes.flat[idx]
+    ax.plot(flusurv_piv[pl])
+    ax.set_title(season_setup.get_location_name(pl))
+    ax.grid()
+fig.tight_layout()
+fig.autofmt_xdate()
+
+# %%
+import seaborn as sns
+fig, axes = plt.subplots(5, 4, sharex=True, figsize=(18,15))
+flusurv_piv = flusurv_clean.pivot(columns='location_code', values='value', index=["fluseason", "fluseason_fraction"])
+for idx, pl in enumerate(flusurv_piv.columns):
+    for year in flusurv_piv.index.unique(level='fluseason'):
+        ax = axes.flat[idx]
+        ax.plot(flusurv_piv.loc[year, pl], c='k', lw=1.2)
+        ax.set_title(pl)
+    #ax.grid()
+    sns.despine(ax=ax)
+fig.tight_layout()
+fig.autofmt_xdate()
+
+# %% [markdown]
+# ### A.2 Read FluView from Delphi Epidata
+# There is also [fluview clinical](https://cmu-delphi.github.io/delphi-epidata/api/fluview_clinical.html) for FluA, FluB, and tested specimen. Which quantity should I look for in this dataset ?
+
+# %%
+fluview = build_dataset.get_from_epidata(
+    dataset="fluview", season_setup=season_setup, download=download, write=write, clean=False
+)
+fluview_clean = build_dataset.clean_dataset(fluview, season_setup=season_setup)
+fluview_clean = season_setup.add_season_columns(fluview_clean, do_fluseason_year=False)
+fluview_clean
+
+# %%
+
+# %%
+fig, axes = plt.subplots(9, 9, sharex=True, figsize=(15,15))
+# remove NA locations
+fluview_piv  = fluview[~fluview["region"].isna()].pivot(columns='region', values='ili', index="week_enddate")
+for idx, pl in enumerate(fluview_piv.columns):
+    ax = axes.flat[idx]
+    ax.plot(fluview_piv[pl])
+    ax.set_title(pl)#get_location_name(pl))
+    ax.grid()
+fig.tight_layout()
+fig.autofmt_xdate()
+
+# %%
+fig, axes = plt.subplots(9, 9, sharex=True, figsize=(15,15))
+fluview_piv = fluview[~fluview["region"].isna()].pivot(columns='region', values='ili', index=["fluseason", "fluseason_fraction"])
+for idx, pl in enumerate(fluview_piv.columns):
+    for year in fluview_piv.index.unique(level='fluseason'):
+        ax = axes.flat[idx]
+        ax.plot(fluview_piv.loc[year, pl])
+        ax.set_title(pl)
+    ax.grid()
+fig.tight_layout()
+fig.autofmt_xdate()
+
+# %% [markdown]
+# ### A.3. Check what is on FluSurv and/or Fluview
+
+# %%
+
+for locations_code in season_setup.locations_df.location_code:
+    in_fluview, in_flusruv = False, False
+    if not flusurv_clean[flusurv_clean['location_code'] == locations_code].empty:
+        in_flusruv = True
+    if not fluview_clean[fluview_clean['location_code'] == locations_code].empty:
+        in_fluview = True
+    if in_fluview and in_flusruv:
+        suffix = "in both fluview and flusurv"
+    elif in_fluview:
+        suffix = "in fluview"
+    elif in_flusruv:
+        suffix = " in flusurv"
+    else:
+        suffix = "NOT in fluview NOR flusurv"
+    print(f"{locations_code}, {season_setup.get_location_name(locations_code):<22} {suffix}")
+
+# %% [markdown]
+# ### A.4. FluSurv from Claire P. Smith and FlepiMoP Team
+# (min and max from Flu SMH comes from these):
+# the numbers come from FluSurvNet -- hosp rates taken and multiplied by population
+# ```
+# [9:49 AM] Prior Peaks: are based on the minimum and maximum observed in national data in the 8 pre-pandemic seasons 2012-2020, converted to state-level estimates.
+# The estimates for incident are based on weekly peaks, and for cumulative based on cumulative hospitalizations at the end of the season.
+# ```
+#
+# So on R you do:
+# ```R
+# source("~/Documents/phd/COVIDScenarioPipeline/Flu_USA/R/groundtruth_functions.R")
+# flus_surv <- get_flu_groundtruth(source="flusurv_hosp", "2015-10-10", "2022-06-11", age_strat = FALSE, daily = FALSE)
+# flus_surv %>% write_csv("flu_surv_cspGT.csv")
+# ```
+#
+# This is the only dataset where the scaling is good
+
+# %%
+csp_flusurv = pd.read_csv("Flusight/flu-datasets/flu_surv_cspGT.csv", parse_dates=["date"])
+csp_flusurv = pd.merge(csp_flusurv, season_setup.locations_df, left_on="FIPS", right_on="abbreviation", how='left')
+csp_flusurv["value"] = csp_flusurv["incidH"]
+csp_flusurv["week_enddate"] = csp_flusurv["date"]
+csp_flusurv = csp_flusurv.drop(columns=["FIPS", "abbreviation", "incidH"])
+csp_flusurv = build_dataset.clean_dataset(csp_flusurv, season_setup=season_setup)
+csp_flusurv = season_setup.add_season_columns(csp_flusurv, do_fluseason_year=True)
+print(f"available for years {csp_flusurv.fluseason.unique()}")
+
+# %%
+csp_flusurv
+
+# %%
+fig, axes = plt.subplots(7, 8, sharex=True, figsize=(15,15))
+csp_flusurv_piv = csp_flusurv.pivot(columns='location_code', values='value', index=["fluseason", "fluseason_fraction"])
+for idx, pl in enumerate(csp_flusurv_piv.columns):
+    for year in csp_flusurv_piv.index.unique(level='fluseason'):
+        ax = axes.flat[idx]
+        if len(csp_flusurv_piv.loc[year, pl]) > 0:
+            ax.plot(csp_flusurv_piv.loc[year, pl])
+        else:
+            print(f"Empty data for {pl} and year {year}")
+        ax.set_title(season_setup.get_location_name(pl))
+    ax.grid()
+fig.tight_layout()
+
+# %% [markdown]
+# ## B. Modeling Datasets
+
+# %% [markdown]
+# ### B.1. Read FluSMH Round 4 and 5
+# Prepared using:
+# ```bash
+# cd Flusight
+# git clone https://github.com/midas-network/flu-scenario-modeling-hub_archive.git flu-scenario-modeling-hub_archive-round4
+# cd flu-scenario-modeling-hub_archive-round4
+# git checkout a67f53fd696ee1b47596ba67b108f6dcba01a1d3
+# cd ..
+# git clone https://github.com/midas-network/flu-scenario-modeling-hub_archive.git flu-scenario-modeling-hub_archive-round5
+# ```
+#
 
 # %%
 importlib.reload(build_dataset)
@@ -52,53 +215,16 @@ smh_traj = build_dataset.extract_flu_scenario_hub_trajectories(min_locations=45)
 # %%
 smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01']['sample'].unique()
 
-# %%
-smh_traj
-
-# %%
-
-# %%
-
-# %%
-smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01'].shape
-
-# %%
-smh_traj['round5_MOBS_NEU-GLEAM_FLU']['A-2023-08-14']['sample'].unique()
-
-# %%
-223600/100/52
+# %% [markdown]
+# ## C. Addition Payload datasets
 
 # %% [markdown]
-# ## 0. Read NC data
+# ### C.1. Read NC data
 # > The hospital admission data are a subset of the ILI data as those admitted will present with ILI in the ED first and then counted again when admitted. I’ve also been told the admission date generally occurs on the same date as the ED visit.
 # > ve also added the only PHE-positive test data available. They provide the last 52 weeks on a rolling basis. The historical data is unavailable at this time, and further discussions may be needed to gain access. Again, these data are confirmed (positive test) infections conducted by the hospital-based Public Health Epidemiologist (PHE) program.
 #  
 # > *Public Health Epidemiologists Program*
 # > In 2003, DPH created a hospital-based Public Health Epidemiologist (PHE) program to strengthen coordination and communication between hospitals, health departments and the state. The PHE program covers approximately 38 percent of general/acute care beds and 40 percent of ED visits in the state. PHEs play a critical role in assuring routine and urgent communicable disease control, hospital reporting of communicable diseases, outbreak management and case finding during community wide outbreaks.
-
-# %%
-
-
-# %%
-
-
-#
-#all_df = all_df.drop("PHE Facilities test table",axis=1) # I did not start doing PHE yet$
-
-
-
-# Let's do only ED hosp now
-all_df = all_df["ED Hospital Admissions"]
-all_df = all_df[[col for col in all_df.columns if "covid" not in col.lower()]]
-all_df = all_df[[col for col in all_df.columns if "total" not in col.lower()]]
-
-
-
-all_df["location_code"] = "NC_" + all_df["location_code"].str.strip() + "_ed"
-all_df
-
-# %%
-all_df[["week_enddate","location_code", "value", "fluseason", "fluseason_fraction", "season_week"]].to_csv("custom_datasets/2025-01-09_nc_payload_gt.csv", index=False)
 
 # %%
 hosp_now = pd.read_csv("custom_datasets/weekly_hosps_2010_24.csv", parse_dates=["Week Date"])
@@ -145,21 +271,6 @@ nc_payload.pivot(index="week_enddate", columns="location_code", values="value").
 
 # from 
 nc_payload
-
-# %%
-
-
-# %%
-flusight = build_dataset.get_from_epidata(dataset=f"flusight2023", season_setup=season_setup, write=False)
-
-# %%
-fluview = build_dataset.get_from_epidata(
-    dataset="fluview", season_setup=season_setup, download=False, write=False
-)
-fluview
-# add season_week and epiweek to fluview
-fluview = season_setup.add_season_columns(fluview, season_setup)
-fluview
 
 # %%
 netcdf_file = (
@@ -216,9 +327,6 @@ smh_df.columns
 combined_df
 
 # %%
-import season_setup
-season_setup =season_setup.SeasonSetup.from_flusight(fluseason_startdate=pd.to_datetime("2020-08-01"), 
-                                        remove_territories=True, remove_us=True)
 
 # %%
 new_locations = pd.DataFrame({
@@ -367,168 +475,11 @@ gt_xarr.to_netcdf(f"Flusight/flu-datasets/{gt_xarr.name}_padded.nc")
 # %%
 
 
-# %% [markdown]
-# ## 3. Delphi-epidata Flusurv
-
-# %%
-flusurv = build_dataset.get_from_epidata(dataset="flusurv",
-                                        season_setup=season_setup, 
-                                        download=download, 
-                                        write=write,
-                                        clean=False)
-
-# %%
-flusurv
-
-# %%
-flusurv_clean = build_dataset.clean_dataset(flusurv, season_setup=season_setup)
-flusurv_clean
-
-# %%
-flusurv_clean
-
-# %%
-fig, axes = plt.subplots(5, 4, sharex=True, figsize=(15,15))
-flusurv_piv  = flusurv_clean.pivot(columns='location_code', values='value', index="week_enddate")
-for idx, pl in enumerate(flusurv_piv.columns):
-    ax = axes.flat[idx]
-    ax.plot(flusurv_piv[pl])
-    ax.set_title(season_setup.get_location_name(pl))
-    ax.grid()
-fig.tight_layout()
-fig.autofmt_xdate()
-
-# %%
-import seaborn as sns
-fig, axes = plt.subplots(5, 4, sharex=True, figsize=(18,15))
-flusurv_piv = flusurv_clean.pivot(columns='location_code', values='value', index=["fluseason", "fluseason_fraction"])
-for idx, pl in enumerate(flusurv_piv.columns):
-    for year in flusurv_piv.index.unique(level='fluseason'):
-        ax = axes.flat[idx]
-        ax.plot(flusurv_piv.loc[year, pl], c='k', lw=1.2)
-        ax.set_title(pl)
-    #ax.grid()
-    sns.despine(ax=ax)
-fig.tight_layout()
-fig.autofmt_xdate()
-
-# %% [markdown]
-# ## 2. Epidata Fluview
-# There is also [fluview clinical](https://cmu-delphi.github.io/delphi-epidata/api/fluview_clinical.html) for FluA, FluB, and tested specimen. Which quantity should I look for in this dataset ?
-
-# %%
-fluview = build_dataset.get_from_epidata(dataset="fluview", season_setup=season_setup, download=download, write=write, clean=False)
-fluview
-
-# %%
-fluview_clean = build_dataset.clean_dataset(fluview, season_setup=season_setup)
-
-# %%
-
-
-# %%
-fig, axes = plt.subplots(9, 9, sharex=True, figsize=(15,15))
-# remove NA locations
-fluview_piv  = fluview[~fluview["region"].isna()].pivot(columns='region', values='ili', index="week_enddate")
-for idx, pl in enumerate(fluview_piv.columns):
-    ax = axes.flat[idx]
-    ax.plot(fluview_piv[pl])
-    ax.set_title(pl)#get_location_name(pl))
-    ax.grid()
-fig.tight_layout()
-fig.autofmt_xdate()
-
-# %%
-fig, axes = plt.subplots(9, 9, sharex=True, figsize=(15,15))
-fluview_piv = fluview[~fluview["region"].isna()].pivot(columns='region', values='ili', index=["fluseason", "fluseason_fraction"])
-for idx, pl in enumerate(fluview_piv.columns):
-    for year in fluview_piv.index.unique(level='fluseason'):
-        ax = axes.flat[idx]
-        ax.plot(fluview_piv.loc[year, pl])
-        ax.set_title(pl)
-    ax.grid()
-fig.tight_layout()
-fig.autofmt_xdate()
-
-# %% [markdown]
-# ## Merge datasets
-
-# %%
-for locations_code in season_setup.locations_df.location_code:
-    in_fluview, in_flusruv = False, False
-    if not flusurv_clean[flusurv_clean['location_code'] == locations_code].empty:
-        in_flusruv = True
-    if not fluview_clean[fluview_clean['location_code'] == locations_code].empty:
-        in_fluview = True
-    if in_fluview and in_flusruv:
-        suffix = "in both fluview and flusurv"
-    elif in_fluview:
-        suffix = "in fluview"
-    elif in_flusruv:
-        suffix = " in flusurv"
-    else:
-        suffix = "NOT in fluview NOR flusurv"
-    print(f"{locations_code}, {season_setup.get_location_name(locations_code):<22} {suffix}")
-
 # %%
 
 
 # %% [markdown]
-# ## 4. FluSurv from Claire and FlepiMoP Team
-# (min and max from Flu SMH comes from these):
-# the numbers come from FluSurvNet -- hosp rates taken and multiplied by population
-# ```
-# [9:49 AM] Prior Peaks: are based on the minimum and maximum observed in national data in the 8 pre-pandemic seasons 2012-2020, converted to state-level estimates.
-# The estimates for incident are based on weekly peaks, and for cumulative based on cumulative hospitalizations at the end of the season.
-# ```
 #
-# So on R you do:
-# ```R
-# source("~/Documents/phd/COVIDScenarioPipeline/Flu_USA/R/groundtruth_functions.R")
-# flus_surv <- get_flu_groundtruth(source="flusurv_hosp", "2015-10-10", "2022-06-11", age_strat = FALSE, daily = FALSE)
-# flus_surv %>% write_csv("flu_surv_cspGT.csv")
-# ```
-#
-# This is the only dataset where the scaling is good
-
-# %%
-csp_flusurv = pd.read_csv("Flusight/flu-datasets/flu_surv_cspGT.csv", parse_dates=["date"])
-df = pd.merge(csp_flusurv, season_setup.locations_df, left_on="FIPS", right_on="abbreviation", how='left')
-df["fluseason"]= df["date"].apply(season_setup.get_fluseason_year)
-df["fluseason_fraction"]= df["date"].apply(season_setup.get_fluseason_fraction)
-df["value"] = df["incidH"]
-df["week_enddate"] = df["date"]
-
-csp_flusurv = build_dataset.clean_dataset(df, season_setup=season_setup)
-csp_flusurv
-
-# %%
-
-
-# %%
-fig, axes = plt.subplots(7, 8, sharex=True, figsize=(15,15))
-csp_flusurv_piv = csp_flusurv.pivot(columns='location_code', values='value', index=["fluseason", "fluseason_fraction"])
-for idx, pl in enumerate(csp_flusurv_piv.columns):
-    for year in csp_flusurv_piv.index.unique(level='fluseason'):
-        ax = axes.flat[idx]
-        if len(csp_flusurv_piv.loc[year, pl]) > 0:
-            ax.plot(csp_flusurv_piv.loc[year, pl])
-        else:
-            print(f"Empty data for {pl} and year {year}")
-        ax.set_title(season_setup.get_location_name(pl))
-    ax.grid()
-fig.tight_layout()
-
-# %%
-np.array(build_dataset.dataframe_to_arraylist(df, season_setup = season_setup, value_column='incidH')).shape
-
-# %%
-df_piv = df.pivot(columns='location_code', values='incidH', index=["fluseason", "fluseason_fraction"])
-for season in df_piv.index.unique(level='fluseason'):
-    print(season)
-
-# %%
-df_piv.loc[season][season_setup.locations]
 
 # %% [markdown]
 # ## Synthetic dataset from CSP
