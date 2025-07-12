@@ -1,7 +1,18 @@
 import datetime
 import pandas as pd
 import math
+import epiweeks
 
+
+def add_season_columns(df, season_setup, do_fluseason_year=True):
+    df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
+    df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_fluseason_week))
+    df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
+    
+    if do_fluseason_year:
+        df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
+
+    return df
 
 # locations, in the right order
 class SeasonSetup:
@@ -129,11 +140,6 @@ class SeasonSetup:
 def remove_locations(location_list, locations_df):
     return locations_df[~locations_df["location_code"].isin(location_list)]
 
-#def get_season_year(ts, start_date):
-#    if ts.dayofyear >= start_date.dayofyear:
-#        return ts.year
-#    else:
-#        return ts.year - 1
     
 def get_season_year(ts, start_date):
     start_month= start_date.month

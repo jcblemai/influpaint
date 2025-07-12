@@ -168,8 +168,7 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
                     
                     # Add season columns using dataset_mixer if season_setup provided
                     if season_setup is not None:
-                        from dataset_mixer import add_season_columns
-                        scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
+                        scenario_df = season_setup.add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
                     
                     scenario_dfs[scenario_id] = scenario_df
                     

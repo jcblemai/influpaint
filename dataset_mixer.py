@@ -6,17 +6,76 @@ import xarray as xr
 import tqdm
 import epiweeks
 
-
-def add_season_columns(df, season_setup, do_fluseason_year=True):
-    df = df.assign(fluseason_fraction=df["week_enddate"].apply(season_setup.get_fluseason_fraction))
-    df = df.assign(season_week=df["week_enddate"].apply(season_setup.get_fluseason_week))
-    df = df.assign(epiweek=df["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
+def build_frames(dict_of_dfs: dict) -> list:
+    """
+    Constructs a list of complete epidemic frames from multiple datasets.
     
-    if do_fluseason_year:
-        df = df.assign(fluseason=df["week_enddate"].apply(season_setup.get_fluseason_year))
+    Creates a comprehensive set of epidemic frames by:
+    1. Merging input datasets with their specified multipliers
+    2. Processing each season and location combination
+    3. Handling missing data by borrowing from other seasons
+    4. Ensuring complete weekly coverage through padding
+    
+    Args:
+        dict_of_dfs (dict): Dictionary of datasets and their multipliers.
+            Same format as required by merge_datasets()
+    
+    Returns:
+        list: List of DataFrames, where each DataFrame contains:
+            - Complete weekly data (weeks 1-53)
+            - All specified locations
+            - Values either from original data or appropriately filled
+            
+    Note:
+        When a location-season combination has no data, the function borrows data
+        from a random season for that location. This ensures all location-season
+        combinations have complete coverage while maintaining realistic patterns.
+    """
+    # Merge all datasets according to their multipliers
+    combined_df = merge_datasets(dict_of_dfs)
+    
+    # Get unique seasons and locations
+    seasons = sorted(combined_df['fluseason'].unique())
+    location_codes = combined_df.location_code.unique()
+    
+    all_frames = []
+    for season in tqdm.tqdm(seasons, desc="Building frames", total=len(seasons)):
+        season_df = combined_df[combined_df['fluseason'] == season]
         
-    
-    return df
+        # Handle multiple datasets per location in this season
+        n_repeat_location_in_season = season_df.groupby("location_code")["dataset_name"].nunique()
+        
+        for i in range(n_repeat_location_in_season.max()):
+            new_frames = []
+            
+            for location in location_codes:
+                # Get data for this location in this season
+                frame = season_df[season_df["location_code"] == location].sort_values('season_week')
+                
+                # Handle missing location-season combinations
+                if len(frame) == 0:
+                    # Borrow data from another season for this location
+                    alternative_frames = combined_df[combined_df['location_code'] == location]
+                    alternative_season = np.random.choice(alternative_frames.fluseason.unique())
+                    frame = combined_df[
+                        (combined_df['fluseason'] == alternative_season) & 
+                        (combined_df['location_code'] == location)
+                    ]
+                
+                # Handle multiple datasets for this location
+                n_datasets = frame["dataset_name"].nunique()
+                if n_datasets > 1:
+                    dataset_names = sorted(frame["dataset_name"].unique())
+                    frame = frame[frame["dataset_name"] == dataset_names[i % n_datasets]]
+                
+                # Ensure complete weekly coverage
+                frame = pad_single_frame(frame, location)
+                new_frames.append(frame)
+            
+            all_frames.append(pd.concat(new_frames))
+            
+    return all_frames, combined_df
+
 
 def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
     """
@@ -135,72 +194,3 @@ def pad_single_frame(frame: pd.DataFrame, location: str) -> pd.DataFrame:
 
     return frame.sort_values("season_week").reset_index(drop=True)
 
-def build_frames(dict_of_dfs: dict) -> list:
-    """
-    Constructs a list of complete epidemic frames from multiple datasets.
-    
-    Creates a comprehensive set of epidemic frames by:
-    1. Merging input datasets with their specified multipliers
-    2. Processing each season and location combination
-    3. Handling missing data by borrowing from other seasons
-    4. Ensuring complete weekly coverage through padding
-    
-    Args:
-        dict_of_dfs (dict): Dictionary of datasets and their multipliers.
-            Same format as required by merge_datasets()
-    
-    Returns:
-        list: List of DataFrames, where each DataFrame contains:
-            - Complete weekly data (weeks 1-53)
-            - All specified locations
-            - Values either from original data or appropriately filled
-            
-    Note:
-        When a location-season combination has no data, the function borrows data
-        from a random season for that location. This ensures all location-season
-        combinations have complete coverage while maintaining realistic patterns.
-    """
-    # Merge all datasets according to their multipliers
-    combined_df = merge_datasets(dict_of_dfs)
-    
-    # Get unique seasons and locations
-    seasons = sorted(combined_df['fluseason'].unique())
-    location_codes = combined_df.location_code.unique()
-    
-    all_frames = []
-    for season in tqdm.tqdm(seasons, desc="Building frames", total=len(seasons)):
-        season_df = combined_df[combined_df['fluseason'] == season]
-        
-        # Handle multiple datasets per location in this season
-        n_repeat_location_in_season = season_df.groupby("location_code")["dataset_name"].nunique()
-        
-        for i in range(n_repeat_location_in_season.max()):
-            new_frames = []
-            
-            for location in location_codes:
-                # Get data for this location in this season
-                frame = season_df[season_df["location_code"] == location].sort_values('season_week')
-                
-                # Handle missing location-season combinations
-                if len(frame) == 0:
-                    # Borrow data from another season for this location
-                    alternative_frames = combined_df[combined_df['location_code'] == location]
-                    alternative_season = np.random.choice(alternative_frames.fluseason.unique())
-                    frame = combined_df[
-                        (combined_df['fluseason'] == alternative_season) & 
-                        (combined_df['location_code'] == location)
-                    ]
-                
-                # Handle multiple datasets for this location
-                n_datasets = frame["dataset_name"].nunique()
-                if n_datasets > 1:
-                    dataset_names = sorted(frame["dataset_name"].unique())
-                    frame = frame[frame["dataset_name"] == dataset_names[i % n_datasets]]
-                
-                # Ensure complete weekly coverage
-                frame = pad_single_frame(frame, location)
-                new_frames.append(frame)
-            
-            all_frames.append(pd.concat(new_frames))
-            
-    return all_frames, combined_df

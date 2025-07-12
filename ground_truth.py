@@ -96,7 +96,7 @@ class GroundTruth():
             if payload_season_first_year is None:
                 payload_season_first_year = season_first_year
             import dataset_mixer
-            payload = dataset_mixer.add_season_columns(payload, self.season_setup)
+            payload = season_setup.add_season_columns(payload, self.season_setup)
             this_payload = payload[payload["fluseason"] == int(payload_season_first_year)]
             self.gt_df = pd.concat([self.gt_df, this_payload], ignore_index=True)
             self.gt_df_final = pd.concat([self.gt_df_final, this_payload], ignore_index=True)

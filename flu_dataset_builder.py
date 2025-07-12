@@ -50,16 +50,20 @@ importlib.reload(build_dataset)
 smh_traj = build_dataset.extract_flu_scenario_hub_trajectories(min_locations=45)
 
 # %%
-smh_traj['round4_MOBS_NEU-GLEAM_FLU']['A-2023-08-14']
-
-# %%
-smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01']
-
-# %%
 smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01']['sample'].unique()
 
 # %%
-smh_traj['round5_MOBS_NEU-GLEAM_FLU']['A-2023-08-14'])
+smh_traj
+
+# %%
+
+# %%
+
+# %%
+smh_traj['round5_ACCIDDA-FlepiMoP']['A-2024-08-01'].shape
+
+# %%
+smh_traj['round5_MOBS_NEU-GLEAM_FLU']['A-2023-08-14']['sample'].unique()
 
 # %%
 223600/100/52
@@ -117,7 +121,7 @@ nc_payload = nc_payload.reset_index().melt(id_vars=["date"], var_name="location_
 nc_payload = nc_payload.rename(columns={"date":"week_enddate"})
 
 # add the fluseason column and the fluseason_fraction column
-nc_payload = dataset_mixer.add_season_columns(nc_payload, season_setup)
+nc_payload = season_setup.add_season_columns(nc_payload, season_setup)
 # add NC to what is already in the location column
 nc_payload["location_code"] = "NC_" + nc_payload["location_code"]
 
@@ -154,7 +158,7 @@ fluview = build_dataset.get_from_epidata(
 )
 fluview
 # add season_week and epiweek to fluview
-fluview = dataset_mixer.add_season_columns(fluview, season_setup)
+fluview = season_setup.add_season_columns(fluview, season_setup)
 fluview
 
 # %%
@@ -184,7 +188,7 @@ smh_df = smh_df.rename(columns={"place": "location_code", "date": "week_enddate"
 smh_df["location_code"] = smh_df["location_code"].apply(lambda x: x[:2])
 
 
-smh_df = dataset_mixer.add_season_columns(smh_df, season_setup, do_fluseason_year=False)
+smh_df = season_setup.add_season_columns(smh_df, season_setup, do_fluseason_year=False)
 smh_df
 
 # %%
