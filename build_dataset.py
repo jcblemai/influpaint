@@ -166,9 +166,10 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
                     
                     scenario_df = scenario_data[columns_to_keep].copy()
                     
-                    # Add season columns using dataset_mixer if season_setup provided
+                    # Add season columns using season_setup if provided
                     if season_setup is not None:
-                        scenario_df = season_setup.add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
+                        from season_setup import add_season_columns
+                        scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
                     
                     scenario_dfs[scenario_id] = scenario_df
                     
@@ -433,10 +434,6 @@ def get_from_epidata(
 
     df["value"] = df[value_col]
 
-    # get the flu season year and it's fraction elapsed
-    df["fluseason"] = df["week_enddate"].apply(season_setup.get_fluseason_year)
-    df["fluseason_fraction"] = df["week_enddate"].apply(season_setup.get_fluseason_fraction)
-    df["season_week"] = df["week_enddate"].apply(season_setup.get_fluseason_week)
     print(f"RAW Dataset {dataset} has {len(df)} data points, with {len(df['location_code'].unique())} locations,"
             f"and NA values: {df['value'].isna().sum()}, NA locations: {df['location_code'].isna().sum()}")
     # select only the columns we need
@@ -444,12 +441,11 @@ def get_from_epidata(
         # remove 
         df = clean_dataset(df, season_setup)
 
-
     return df
 
 
 def clean_dataset(df, season_setup):
-    df = df[["week_enddate", "location_code", "value", "fluseason", "fluseason_fraction", "season_week"]]
+    df = df[["week_enddate", "location_code", "value"]]
     # remove locations that are not in the season_setup
     df = df[df["location_code"].isin(season_setup.locations)]
     # remove NaNs
@@ -467,6 +463,7 @@ def get_dataset_all_locations(dataset):
         locations = pd.read_csv(
             locations_fn, sep="\t", header=None, names=["location"]
         )["location"].to_list()
+        return locations
     elif dataset == "fluview":
         import importlib
 
@@ -478,4 +475,7 @@ def get_dataset_all_locations(dataset):
         for region_type in fll_dict.keys():
             for region_name, flloc in fll_dict[region_type].items():
                 locations.append(flloc)
-    return locations
+        return locations
+    else:
+        raise NotImplementedError(f"Dataset {dataset} not implemented for getting all locations")
+    
