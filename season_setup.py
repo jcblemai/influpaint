@@ -21,35 +21,66 @@ def add_season_columns(df, season_setup, do_fluseason_year=True, do_epiweek=Fals
 # locations, in the right order
 class SeasonSetup:
     """ 
-    A SeasonSetup object contains locations and season information start date for a given season. It is useful 
-    for creating datasets and models that are season-specific.
+    A SeasonSetup object manages locations and flu season temporal coordinates.
+    
+    This class serves two distinct purposes:
+    
+    1. **Abstract Temporal Coordinates (for arrays/training)**:
+        - get_season_week(): Maps dates to season week numbers (1-53)
+        - Provides consistent temporal alignment across flu seasons
+        - Used for creating arrays, training models, seasonal overlays
+    
+    2. **Concrete Calendar Mapping (for forecasting)**:
+        - get_week_dates(): Returns actual date ranges for specific weeks/years
+        - week_to_saturday(): Maps season weeks to specific Saturday dates  
+        - get_season_calendar(): Full calendar for a specific flu season year
+        - Used for converting model predictions to real calendar dates
 
     Parameters:
-    - locations (pd.DataFrame): A DataFrame containing location information.
-    - fluseason_startdate (pd.Timestamp, optional): The start date of the flu season. Defaults to July 15, 2020.
+    - locations (pd.DataFrame): DataFrame with location information
+    - season_start_month (int, optional): Start month for flu seasons. Defaults to 8 (August).
+    - season_start_day (int, optional): Start day for flu seasons. Defaults to 1.
 
     Attributes:
-    - locations_df (pd.DataFrame): The DataFrame containing location information.
-    - locations (list): A list of location codes.
-    - fluseason_startdate (pd.Timestamp): The start date of the flu season.
+    - locations_df (pd.DataFrame): DataFrame containing location information
+    - locations (list): List of location codes in order
+    - season_start_month (int): Start month for flu seasons (1-12)
+    - season_start_day (int): Start day for flu seasons (1-31)
 
-    Methods:
-    - get_location_name(location_code): Returns the location name for a given location code.
-    - get_dates(length): Returns a date range for a given length.
-    - from_flusight(location_filepath, fluseason_startdate, remove_territories): Creates a SeasonSetup object from Flusight 2022-2023 repository 
-            (because 2022-2023 contains virgin islands, 2023-2024 does not)
-    - get_fluseason_year(ts): Returns the flu season year for a given timestamp.
-    - get_fluseason_fraction(ts): Returns the fraction of the flu season for a given timestamp.
+    Key Methods:
+    
+    Abstract Temporal:
+    - get_season_week(ts): Season week number (like epiweek but for flu seasons)
+    - get_fluseason_year(ts): Flu season year for a given date
+    - get_fluseason_fraction(ts): Fraction of flu season elapsed (0.0-1.0)
+    
+    Concrete Calendar:  
+    - get_week_dates(year, week): Actual date range for week N in year Y
+    - week_to_saturday(year, week): Saturday date for week N in year Y
+    - get_season_calendar(year): Full calendar mapping for a specific season
+    
+    Utilities:
+    - get_location_name(code): Location name for a given code
+    - from_flusight(): Create from FluSight location data
+    
+    Example:
+        # Abstract temporal coordinate (for arrays)
+        week = season_setup.get_season_week("2023-11-25")  # Returns 17
+        
+        # Concrete calendar mapping (for forecasting)  
+        start, end = season_setup.get_week_dates(2023, 17)  # Nov 19-25, 2023
+        saturday = season_setup.week_to_saturday(2024, 17)  # Nov 23, 2024
     """
 
     def __init__(
-        self, locations: pd.DataFrame, fluseason_startdate=pd.to_datetime("2020-08-01")
+        self, locations: pd.DataFrame, season_start_month: int = 8, season_start_day: int = 1
     ):
         self.update_locations(locations)
         
-        self.fluseason_startdate = fluseason_startdate
+        self.season_start_month = season_start_month
+        self.season_start_day = season_start_day
 
-        print(f"Spatial Setup with {len(self.locations_df)} locations, with a season start_date of {self.fluseason_startdate.strftime('%b %d')}")
+        print(f"Spatial Setup with {len(self.locations_df)} locations, with a season start_date of {pd.to_datetime(f'2020-{season_start_month:02d}-{season_start_day:02d}').strftime('%b %d')}")
 
 
     def update_locations(self, new_locations):
@@ -66,6 +97,8 @@ class SeasonSetup:
         location_filepath=None,
         season_first_year=None,
         fluseason_startdate=None,
+        season_start_month=None,
+        season_start_day=None,
         remove_territories=False,
         remove_us=False,
     ):
@@ -83,8 +116,18 @@ class SeasonSetup:
             else:
                 raise ValueError(f"unreconized season {season_first_year}")
         
-        if fluseason_startdate is None:
-            fluseason_startdate = pd.to_datetime(f"2020-08-01")
+        # Handle legacy fluseason_startdate parameter vs new month/day parameters
+        if season_start_month is not None and season_start_day is not None:
+            # Use explicit month/day parameters
+            pass
+        elif fluseason_startdate is not None:
+            # Extract from legacy parameter
+            season_start_month = fluseason_startdate.month
+            season_start_day = fluseason_startdate.day
+        else:
+            # Default values
+            season_start_month = 8
+            season_start_day = 1
 
         flusight_locations = pd.read_csv(
             location_filepath,
@@ -107,14 +150,14 @@ class SeasonSetup:
 
         flusight_locations = flusight_locations[["abbreviation", "location_name", "population", "location_code", "geoid"]]
         return cls(
-            locations=flusight_locations, fluseason_startdate=fluseason_startdate
+            locations=flusight_locations, season_start_month=season_start_month, season_start_day=season_start_day
         )
 
     def get_fluseason_year(self, ts):
-        return get_season_year(ts, self.fluseason_startdate)
+        return get_season_year(ts, self.season_start_month, self.season_start_day)
     
     def get_fluseason_fraction(self, ts):
-        return get_season_fraction(ts, self.fluseason_startdate)
+        return get_season_fraction(ts, self.season_start_month, self.season_start_day)
     
 
     
@@ -133,8 +176,8 @@ class SeasonSetup:
         Returns:
             int: Season week number (1-53)
         """
-        return get_season_week(ts, start_month=self.fluseason_startdate.month, 
-                            start_day=self.fluseason_startdate.day)
+        return get_season_week(ts, start_month=self.season_start_month, 
+                            start_day=self.season_start_day)
     
     # === CONCRETE CALENDAR MAPPING (for forecasting) ===
     def get_week_dates(self, season_year: int, week_number: int) -> tuple[datetime.date, datetime.date]:
@@ -148,7 +191,7 @@ class SeasonSetup:
         Returns:
             tuple: (start_date, end_date) for that week
         """
-        season_start = datetime.date(season_year, self.fluseason_startdate.month, self.fluseason_startdate.day)
+        season_start = datetime.date(season_year, self.season_start_month, self.season_start_day)
         week_start = season_start + datetime.timedelta(days=(week_number - 1) * 7)
         week_end = week_start + datetime.timedelta(days=6)
         return week_start, week_end
@@ -193,7 +236,7 @@ class SeasonSetup:
             saturday = self.week_to_saturday(season_year, week_num)
             
             # Stop if we've gone past the end of the season
-            next_season_start = datetime.date(season_year + 1, self.fluseason_startdate.month, self.fluseason_startdate.day)
+            next_season_start = datetime.date(season_year + 1, self.season_start_month, self.season_start_day)
             if start_date >= next_season_start:
                 break
                 
@@ -215,9 +258,11 @@ class SeasonSetup:
         ].values[0]
 
     def get_dates(self, length=52, freq="W-SAT"):
+        # Use a reference year for generating date ranges
+        reference_start = datetime.date(2020, self.season_start_month, self.season_start_day)
         dr = pd.date_range(
-            start=self.fluseason_startdate,
-            end=self.fluseason_startdate + datetime.timedelta(days=7 * length),
+            start=reference_start,
+            end=reference_start + datetime.timedelta(days=7 * length),
             freq=freq,
         )
         return dr
@@ -231,9 +276,7 @@ def remove_locations(location_list, locations_df):
     return locations_df[~locations_df["location_code"].isin(location_list)]
 
     
-def get_season_year(ts, start_date):
-    start_month= start_date.month
-    start_day= start_date.day
+def get_season_year(ts, start_month: int, start_day: int):
     if isinstance(ts, datetime.datetime):
         ts = ts.date()
 
@@ -243,11 +286,19 @@ def get_season_year(ts, start_date):
         return ts.year - 1
 
 
-def get_season_fraction(ts, start_date):
-    if ts.dayofyear >= start_date.dayofyear:
-        return (ts.dayofyear - start_date.dayofyear) / 365
-    else:
-        return ((ts.dayofyear + 365) - start_date.dayofyear) / 365
+def get_season_fraction(ts, start_month: int, start_day: int):
+    if isinstance(ts, datetime.datetime):
+        ts = ts.date()
+    
+    # Create a season start date for the current year
+    season_start = datetime.date(ts.year, start_month, start_day)
+    
+    # If the date is before season start, use previous year's season start
+    if ts < season_start:
+        season_start = datetime.date(ts.year - 1, start_month, start_day)
+    
+    days_since_start = (ts - season_start).days
+    return days_since_start / 365
     
 
 def get_season_week(ts: Union[str, datetime.date, datetime.datetime],
