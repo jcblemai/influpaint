@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
-from season_setup import SeasonSetup
+from season_axis import SeasonAxis
 import xarray as xr
 
 def padto64x64(x: np.ndarray) -> np.ndarray:
@@ -12,7 +12,7 @@ def padto64x64(x: np.ndarray) -> np.ndarray:
         constant_values=0,
     )
 
-def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influpaint/Flusight", 
+def extract_FluSMH_trajectories(base_path="/Users/chadi/Research/influpaint/Flusight", 
                                         target="inc hosp", 
                                         age_group="0-130",
                                         min_locations=10,
@@ -168,7 +168,7 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
                     
                     # Add season columns using season_setup if provided
                     if season_setup is not None:
-                        from season_setup import add_season_columns
+                        from season_axis import add_season_columns
                         scenario_df = add_season_columns(scenario_df, season_setup, do_fluseason_year=False)
                     
                     scenario_dfs[scenario_id] = scenario_df
@@ -208,7 +208,7 @@ def extract_flu_scenario_hub_trajectories(base_path="/Users/chadi/Research/influ
 
 def dataframe_to_xarray(
     df: pd.DataFrame,
-    season_setup: SeasonSetup = None,
+    season_setup: SeasonAxis = None,
     xarray_name="data",
     xarrax_features="value",
     date_column="week_enddate",
@@ -266,7 +266,7 @@ def dataframe_to_xarray(
 
 
 def dataframe_to_arraylist(
-    df: pd.DataFrame, season_setup: SeasonSetup = None, value_column="value",
+    df: pd.DataFrame, season_setup: SeasonAxis = None, value_column="value",
 ) -> np.ndarray:
 
     samples = []
@@ -293,7 +293,7 @@ def dataframe_to_arraylist(
 
 def get_from_epidata(
     dataset,
-    season_setup: SeasonSetup = None,
+    season_setup: SeasonAxis = None,
     locations="all",
     value_col=None,
     write=True,

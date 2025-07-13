@@ -4,9 +4,9 @@ import math
 from typing import Union
 
 # locations, in the right order
-class SeasonSetup:
+class SeasonAxis:
     """ 
-    A SeasonSetup object manages locations and flu season temporal coordinates.
+    A SeasonAxis object manages locations and flu season temporal coordinates.
     
     This class serves two distinct purposes:
     
