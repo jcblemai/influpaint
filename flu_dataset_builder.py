@@ -388,23 +388,6 @@ Path("training_datasets").mkdir(parents=True, exist_ok=True)
 
 flu_payload_array.to_netcdf(f"training_datasets/NC_Flusight_{today}.nc")
 
-# %% [markdown]
-# Commands to sync Flu SMH R1 from s3 bucket
-# ```bash
-# aws s3 sync s3://idd-inference-runs/USA-20220923T154311/model_output/ datasets/SMH_R1/SMH_R1_lowVac_optImm_2022 --exclude "*" --include "hosp*/final/*"
-# aws s3 sync s3://idd-inference-runs/USA-20220923T155228/model_output/ datasets/SMH_R1/SMH_R1_lowVac_pesImm_2022 --exclude "*" --include "hosp*/final/*"
-# aws s3 sync s3://idd-inference-runs/USA-20220923T160106/model_output/ datasets/SMH_R1/SMH_R1_highVac_optImm_2022 --exclude "*" --include "hosp*/final/*"
-# aws s3 sync s3://idd-inference-runs/USA-20220923T161418/model_output/ datasets/SMH_R1/SMH_R1_highVac_pesImm_2022 --exclude "*" --include "hosp*/final/*"
-# ```
-# and take a humidity file from the config
-#
-
-# %%
-
-
-# %%
-
-
 # %%
 import seaborn as sns
 fig, axes = plt.subplots(2, 2, sharex=True, figsize=(5,5))
@@ -423,74 +406,7 @@ fig.autofmt_xdate()
 build_dataset.dataframe_to_arraylist(nc_payload, season_setup = season_setup, value_column='value')
 
 # %% [markdown]
-# ## 1. FluSight dataset (= Ground-truth data for inpainting)
-
-# %% [markdown]
-# Make sure my fork is synced, then
-# ```bash
-# ./update_data.sh
-# ```
-# Locations are always ordered like this dataframe:
-
-# %%
-flusight22 = build_dataset.get_from_epidata(dataset="flusight2022_23", 
-                                            season_setup=season_setup, 
-                                            write=False,
-                                            clean=False)
-flusight22
-
-# %%
-# Flusight 2023 does not have data for the Virgin Islands (78) so the clean=True flag will remove it.
-flusight23 = build_dataset.get_from_epidata(dataset="flusight2023_24", 
-                                            season_setup=season_setup, 
-                                            write=False,
-                                            clean=True)
-flusight23
-
-# %%
-fig, axes = plt.subplots(9, 6, sharex=True, figsize=(15,15))
-flusight22_piv  = flusight22.pivot(index = "week_enddate", columns='location_code', values='value')
-flusight23_piv  = flusight23.pivot(index = "week_enddate", columns='location_code', values='value')
-for idx, pl in enumerate(flusight22_piv.columns):
-    ax = axes.flat[idx]
-    ax.plot(flusight22_piv[pl], color='blue', label='2022/23')
-    if pl in flusight23_piv.columns:
-        ax.plot(flusight23_piv[pl], color='red', label='2023/24', alpha=0.5)
-    ax.set_title(season_setup.get_location_name(pl))
-    ax.grid()
-ax.legend()
-fig.tight_layout()
-fig.autofmt_xdate()
-
-# %%
-gt_xarr = build_dataset.dataframe_to_xarray(df, season_setup=season_setup, 
-            xarray_name = "gt_flusight_incidHosp", 
-            xarrax_features = "incidHosp")
-print(gt_xarr.shape)
-gt_xarr.to_netcdf(f"Flusight/flu-datasets/{gt_xarr.name}_padded.nc")
-
-# %% [markdown]
-# This data is on saturday for 53 locations + US
-
-# %%
-
-
-# %%
-
-
-# %% [markdown]
-#
-
-# %% [markdown]
-# ## Synthetic dataset from CSP
-
-# %%
-assert False  # stop here when "Run All" is used in this notebook
-import gempyor
-folder = 'datasets/SMH_R1/'
-col2keep = ['incidH_FluA', 'incidH_FluB']
-
-# %% [markdown]
+# ### B.2. FlepiMoP/CSP Flu SMH R1 from 2022
 # Commands to sync Flu SMH R1 from s3 bucket
 # ```bash
 # aws s3 sync s3://idd-inference-runs/USA-20220923T154311/model_output/ datasets/SMH_R1/SMH_R1_lowVac_optImm_2022 --exclude "*" --include "hosp*/final/*"
@@ -499,7 +415,12 @@ col2keep = ['incidH_FluA', 'incidH_FluB']
 # aws s3 sync s3://idd-inference-runs/USA-20220923T161418/model_output/ datasets/SMH_R1/SMH_R1_highVac_pesImm_2022 --exclude "*" --include "hosp*/final/*"
 # ```
 # and take a humidity file from the config
-#
+
+# %%
+assert False  # stop here when "Run All" is used in this notebook
+import gempyor
+folder = 'datasets/SMH_R1/'
+col2keep = ['incidH_FluA', 'incidH_FluB']
 
 # %%
 humid = pd.read_csv('datasets/SMH_R1/SMH_R1_lowVac_optImm_2022/r0s_ts_2022-2023.csv', index_col='date', parse_dates=True)
@@ -516,19 +437,13 @@ geoids = list(pd.concat([df[col2keep[0]], indexes], axis=1).pivot(values=col2kee
 dates = list(pd.concat([df[col2keep[0]], indexes], axis=1).pivot(values=col2keep[0], index='date', columns='geoid').index)
 
 # %%
-
-
-# %%
-df.columns
-
-# %%
 incid_xarr = xr.DataArray(-1 * np.ones((len(hosp_files), 
-                           len(col2keep),
-                           len(full_df.date.unique()),
-                           len(full_df.geoid.unique())
-                          )), 
-                         coords={'sample': np.arange(len(hosp_files)),'feature': col2keep, 'date': dates, 'place': geoids}, 
-                         dims=["sample", "feature", "date", "place"])
+                        len(col2keep),
+                        len(full_df.date.unique()),
+                        len(full_df.geoid.unique())
+                        )), 
+                        coords={'sample': np.arange(len(hosp_files)),'feature': col2keep, 'date': dates, 'place': geoids}, 
+                        dims=["sample", "feature", "date", "place"])
 
 
 for i, path_str in enumerate(hosp_files):
@@ -558,7 +473,7 @@ covar_xarr = xr.DataArray(humid_st,
 covar_xarr = covar_xarr.expand_dims({"feature":['R0Humidity']})
 
 # %% [markdown]
-# ### makes the dates of r0 and humidity match
+# #### makes the dates of r0 and humidity match
 
 # %%
 print(type(incid_xarr), incid_xarr.date[0], incid_xarr.date[-1] )
@@ -593,115 +508,3 @@ full_xarr_w
 full_xarr_w_padded = full_xarr_w.pad({'date': (0, 17), 'place':(0,13)}, mode='constant', constant_values=0)
 print(full_xarr_w_padded.shape)
 full_xarr_w_padded.to_netcdf("datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc")
-
-# %% [markdown]
-# ## Data from the trajectories submitted to SMH
-
-# %%
-maxfiles = -1
-folder = "Flusight/Flu-SMH/data-processed/"
-# Just the last round, submitted on 2023-09-03, contains trajectories
-hosp_files = list(Path(str(folder)).rglob('*2023-09-03*.parquet'))[:maxfiles]
-print(len(hosp_files), [str(m).split("-")[-1].split(".")[0] for m in hosp_files])
-
-import gempyor
-
-df = gempyor.read_df(str(hosp_files[0]))
-
-
-# %%
-big_df = []
-for m in hosp_files:
-    df = gempyor.read_df(str(m))
-    df["model"] = str(m).split("-")[-1].split(".")[0]
-    big_df.append(df)
-big_df = pd.concat(big_df)
-
-big_df = big_df[(big_df["output_type"] == "sample") & (big_df["target"] == "inc hosp") &  (big_df["age_group"] == "0-130")].reset_index(drop=True)
-
-# %%
-big_df["week_enddate"] = pd.to_datetime(big_df["origin_date"]) + pd.to_timedelta(big_df["horizon"], unit='W')
-big_df["location_code"] = big_df["location"]
-big_df = big_df.drop(columns=["origin_date", "horizon", "target", "output_type", "age_group", "location"])
-big_df
-
-# %%
-this_traj
-
-# %%
-a = this_df[this_df["output_type_id"] == traj]
-a = a.assign(season_fraction=a["week_enddate"].apply(season_setup.get_fluseason_fraction))
-a = a.assign(season=a["week_enddate"].apply(season_setup.get_fluseason_year))
-a = a.assign(epiweek=a["week_enddate"].apply(lambda x: epiweeks.Week.fromdate(x).week))
-
-# %%
-# There are either 52 [1 to 53] epiweeks or 51 epiweeks [1 to 51] in a year
-index = [epiweeks.Week.fromdate(d).week for d in season_setup.get_dates()] # has 53 weeks
-assert len(index) == 52  # the index year has 52 weeks (1 to 53)
-
-# %%
-index
-
-# %%
-index
-
-# %%
-if max(a.epiweek) < 53:
-    # drop the week number 53 in the middle of the INDEX
-    index_mod = index.drop(53, axis=0)
-else:
-    index_mod = index
-index_mod
-
-# %%
-import pandas as pd
-a_piv = a.pivot(columns='location_code', values='value', index="epiweek")
-a_piv
-
-# %%
-# reindex a_piv with a_piv.index = index, using the closest value and zeros for missing values
-a_piv = a_piv.reindex(index, fill_value=0)
-a_piv
-
-# %%
-array_list = []
-
-gleam = big_df[(big_df["model"]=="GLEAM_FLU")& (big_df["location_code"] == "11")]
-
-for m in big_df.model.unique():
-    if len(big_df[(big_df["model"]==m)].location_code.unique()) > 45: # a lot have smaller than 51 locations (just US, just CA), and one has 57 location...
-        print(len(big_df[(big_df["model"]==m)].location_code.unique()), m)
-        for scn in big_df.scenario_id.unique():
-            this_df =  big_df[(big_df["scenario_id"] == scn) & (big_df["model"]==m)]
-            for traj in this_df.output_type_id.unique():
-                this_traj = this_df[this_df["output_type_id"] == traj].pivot(index="week_enddate", columns='location_code', values='value')
-                
-                if m == "ImmunoSEIRS": # this model does not have washington DC (11)
-                    # replacet it with GLEAM_FLU
-                    gleam11 = gleam[(gleam["scenario_id"] == scn) 
-                                    & (gleam["output_type_id"] == traj)].pivot(index="week_enddate", columns='location_code', values='value')
-                    this_traj["11"] = gleam11
-                
-                # re-order the locations and keep these in season_setup
-                this_traj = this_traj[season_setup.locations]
-        
-                # order the dates
-                this_traj = this_traj.sort_index()
-                
-                array_list.append(this_traj.to_numpy())
-
-# %%
-flu_smh = np.array(array_list)
-# add the feature dimention
-flu_smh = flu_smh[:, np.newaxis, :]
-
-# %%
-flu_smh_xarr = xr.DataArray(flu_smh, 
-                coords={'sample': np.arange(flu_smh.shape[0]),
-                    'feature': np.arange(flu_smh.shape[1]),
-                    'date': this_traj.index,
-                    'place': season_setup.locations}, 
-                dims=["sample", "feature", "date", "place"])
-
-
-
