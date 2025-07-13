@@ -1,10 +1,151 @@
+"""
+dataset_mixer.py - Epidemic Data Augmentation and Frame Construction
+
+This module provides functionality for combining multiple epidemic surveillance datasets
+into a unified training corpus for diffusion models. It implements a sophisticated 
+data augmentation strategy that addresses common challenges in epidemic modeling:
+
+- **Dataset Rebalancing**: Uses multipliers to weight high-quality data sources
+- **Temporal Completeness**: Ensures all frames have complete weekly coverage (1-53)
+- **Spatial Completeness**: Fills missing location-season combinations
+- **Gap Handling**: Intelligent filling of missing weeks and locations
+
+Key Components:
+--------------
+1. **Multiplier Calculation**: Compute dataset weights for target proportions
+2. **Data Merging**: Replicate datasets according to multipliers
+3. **Frame Construction**: Build complete epidemic frames for training
+4. **Gap Filling**: Handle missing data with epidemiologically-aware strategies
+
+Typical Usage:
+--------------
+# Step 1: Define target proportions
+dict_of_dfs = {
+    "fluview": {"df": fluview_df},
+    "nc_payload": {"df": nc_df}, 
+    "synthetic": {"df": model_df}
+}
+
+# Step 2: Calculate multipliers for desired composition
+multipliers = calculate_multipliers(dict_of_dfs, total_samples=1000, 
+                                  target_proportions={"fluview": 0.7})
+
+# Step 3: Apply multipliers and build training frames
+for name in dict_of_dfs:
+    dict_of_dfs[name]["multiplier"] = multipliers[name]
+    
+final_frames, combined_df = build_frames(dict_of_dfs)
+
+Output Format:
+--------------
+Each frame is a complete epidemic season with:
+- All weeks (1-53) represented
+- All locations covered  
+- Consistent data structure for array conversion
+- Ready for diffusion model training
+
+This design enables robust training on heterogeneous surveillance data while
+maintaining epidemiological realism and temporal structure.
+"""
+
 import pandas as pd
 import numpy as np
 from helpers.delphi_epidata import Epidata
-from season_setup import SeasonSetup
+from season_axis import SeasonAxis
 import xarray as xr
 import tqdm
-import epiweeks
+
+
+def calculate_multipliers(dict_of_dfs: dict, total_samples: int, 
+                         target_proportions: dict) -> dict:
+    """
+    Calculate dataset multipliers to achieve target proportions in final training corpus.
+    
+    Given multiple datasets and desired composition (e.g., "70% fluview data"), this function
+    computes multipliers that will produce the target distribution when datasets are replicated.
+    
+    Args:
+        dict_of_dfs (dict): Dictionary of datasets, each containing:
+            - 'df' (pd.DataFrame): The actual dataset
+            Expected columns: ['fluseason', 'location_code', 'season_week', 'value']
+        total_samples (int): Desired total number of samples in final corpus
+        target_proportions (dict): Desired proportions for specific datasets.
+            - Keys: dataset names (must exist in dict_of_dfs)
+            - Values: proportion (0.0-1.0), e.g., {"fluview": 0.7}
+            - Unspecified datasets get equal share of remaining proportion
+    
+    Returns:
+        dict: Multipliers for each dataset, keyed by dataset name
+        
+    Example:
+        datasets = {
+            "fluview": {"df": fluview_df},      # has 10 base samples
+            "nc_data": {"df": nc_df},           # has 5 base samples
+            "synthetic": {"df": synth_df}       # has 8 base samples
+        }
+        
+        # Want 70% fluview, 1000 total samples
+        multipliers = calculate_multipliers(
+            datasets, 
+            total_samples=1000,
+            target_proportions={"fluview": 0.7}
+        )
+        # Result: {"fluview": 70, "nc_data": 30, "synthetic": 19}
+        # This gives: 70*10=700 fluview + 30*5=150 nc + 19*8=152 synth ≈ 1000 total
+        
+    Notes:
+        - Base sample count = number of unique (fluseason, location_code) combinations
+        - Multipliers are rounded to integers
+        - Final total may differ slightly from target due to rounding
+        - At least multiplier=1 is guaranteed for all datasets
+    """
+    # Calculate base sample counts for each dataset
+    base_counts = {}
+    for name, dataset_info in dict_of_dfs.items():
+        df = dataset_info['df']
+        required_columns = ['fluseason', 'location_code']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise ValueError(f"Dataset '{name}' missing required columns: {missing_columns}")
+        
+        base_count = df.groupby(['fluseason', 'location_code']).ngroups
+        base_counts[name] = base_count
+    
+    # Initialize multipliers - everyone gets at least 1
+    multipliers = {name: 1 for name in dict_of_dfs.keys()}
+    
+    # Calculate target sample counts for specified datasets
+    specified_names = set(target_proportions.keys())
+    unspecified_names = set(dict_of_dfs.keys()) - specified_names
+    
+    # Validate that specified datasets exist
+    missing_datasets = specified_names - set(dict_of_dfs.keys())
+    if missing_datasets:
+        raise ValueError(f"Target proportions specified for non-existent datasets: {missing_datasets}")
+    
+    # Validate that proportions sum to <= 1.0
+    total_specified_proportion = sum(target_proportions.values())
+    if total_specified_proportion > 1.0:
+        raise ValueError(f"Target proportions sum to {total_specified_proportion:.3f} > 1.0")
+    
+    # Calculate multipliers for specified datasets
+    for name, proportion in target_proportions.items():
+        target_samples = int(total_samples * proportion)
+        base_count = base_counts[name]
+        multipliers[name] = max(1, round(target_samples / base_count))
+    
+    # Calculate remaining proportion for unspecified datasets
+    remaining_proportion = 1.0 - total_specified_proportion
+    if remaining_proportion > 0 and unspecified_names:
+        remaining_samples = int(total_samples * remaining_proportion)
+        samples_per_unspecified = remaining_samples / len(unspecified_names)
+        
+        for name in unspecified_names:
+            base_count = base_counts[name]
+            multipliers[name] = max(1, round(samples_per_unspecified / base_count))
+    
+    return multipliers
+
 
 def build_frames(dict_of_dfs: dict) -> list:
     """
@@ -124,7 +265,7 @@ def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
         multiplier = dataset_info['multiplier']
         
         # Validate required columns
-        required_columns = ['season_week', 'location_code', 'value', 'fluseason', 'week_enddate']
+        required_columns = ['dataset', 'fluseason', 'location_code', 'sample', 'season_week', 'value', 'week_enddate']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             raise ValueError(f"Missing required columns in dataset '{dataset_name}': {missing_columns}")
@@ -134,7 +275,7 @@ def merge_datasets(dict_of_dfs: dict) -> pd.DataFrame:
         # Create replicas with offset seasons
         for i in range(multiplier):
             df_copy = df.copy()
-            df_copy.loc[:, "dataset_name"] = f"{dataset_name}_{i}"
+            df_copy.loc[:, "dataset"] = f"{dataset_name}_{i}"
             df_copy.loc[:, "fluseason"] = df_copy.loc[:, "fluseason"] + i * 1000 # Offset season by 1000, so they don't overlap
             combined_datasets.append(df_copy)
 
