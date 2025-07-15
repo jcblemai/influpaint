@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import xarray as xr
-import read_datasources
+from . import read_datasources
 
 
 class FluDataset(torch.utils.data.Dataset):

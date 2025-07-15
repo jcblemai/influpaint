@@ -118,56 +118,35 @@ for ds_name, mix_cfg in DATASET_GRIDS.items():
 
 
 # %%
-mix_cfg = DATASET_GRIDS["MOD_ONLY"]
-
-
-# %%
-len(frame_list[0].location_code.unique())
+all_frames_df.groupby(["origin"]).count()
 
 # %%
+all_frames_df
 
 # %%
-
-# %%
-flu_payload_array.shape
-
-# %%
-a = frame_list[880]
+a = frame_list[9]
 a[a['location_code'] == '11'].sort_values(by='season_week')
 
 # %%
-all_datasets_df[(all_datasets_df["datasetH2"]=="round5_SigSci-SWIFT_A-2024-08-01") & all_datasets_df["location_code"]=="11"]
+from influpaint.datasets import loaders
+
 
 # %%
-all_frames_df[(all_frames_df['fluseason'] == 880) & (all_frames_df['location_code'] == '11')].sort_values(by='season_week')
+flu_dyn = xr.open_dataarray(f"training_datasets/TS_{ds_name}_{today}.nc")
 
 # %%
-
-# Check for duplicates in the index columns before pivoting
-dupes = all_frames_df[all_frames_df.duplicated(subset=["fluseason", "season_week", "location_code"], keep=False)]
-if not dupes.empty:
-    print("Duplicate entries found:")
-    print(dupes)
-else:
-    df_piv = all_frames_df.pivot(
-        columns="location_code",
-        values="value",
-        index=["fluseason", "season_week"],
-    )
+flu_dyn_arr = np.array(flu_dyn)
 
 # %%
-a["origin"].unique()
+dl = loaders.FluDataset(flu_dyn=flu_dyn_arr)
 
 # %%
+fig, ax = plt.subplot()
+ar = dl.get_sample_transformed_enriched(80)
+idplots.plot_to_ax(ar, multi = True)
 
 # %%
-mix_cfg = DATASET_GRIDS["HYBRID_70S_30M"]
-frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+for i in range(len(all_frames_df["origin"].unique())):
+    print(i, all_frames_df["origin"].unique()[i])
 
 # %%
-
-# %%
-
-# %%
-
-
