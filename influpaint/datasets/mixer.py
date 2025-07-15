@@ -187,11 +187,10 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
     print(f"Created {len(all_frames)} total frames:")
     for h1_name, summary in frame_summary.items():
         print(f"  {h1_name}: {summary['total_frames']} frames (multiplier={summary['multiplier']})")
-        for h2, count in summary['h2_breakdown'].items():
-            print(f"    {h2}: {count} frames")
+        #for h2, count in summary['h2_breakdown'].items():
+        #    print(f"    {h2}: {count} frames")
     
     # Clean up frames by removing unnecessary metadata columns
-    print("Cleaning up frame columns...")
     cleaned_frames = []
     essential_columns = ['location_code', 'season_week', 'value', 'week_enddate', 'origin']
     
@@ -414,7 +413,38 @@ def _fill_missing_with_zeros(frame: pd.DataFrame, missing_locations: set) -> pd.
 def _fill_missing_with_random(frame: pd.DataFrame, missing_locations: set, 
                             actual_locations: set, all_datasets_df: pd.DataFrame = None, 
                             global_lookup: dict = None) -> pd.DataFrame:
-    """Fill missing locations with intelligent data from the full dataset."""
+    """
+    Fill missing locations with intelligent randomized data from the full dataset.
+    
+    **RANDOMIZATION BEHAVIOR**: Each multiplied frame is processed independently.
+    When location filling is needed, the process uses np.random.choice() to ensure
+    different random choices across multiplied frames, providing excellent data 
+    augmentation for training.
+    
+    For each missing location, the fill logic runs:
+    - Uses np.random.choice() to pick a random year from available years
+    - Uses np.random.choice() to pick a random sample from available samples  
+    - This ensures different random choices across multiplied frames
+    
+    Search hierarchy for missing location fill data:
+    - **Priority 1**: Same H1 dataset, different year → random year + random sample
+    - **Priority 2**: Same H1 dataset, different sample → random sample from same year
+    - **Priority 3**: Different H1 dataset → random H1 + random year
+    
+    **Each multiplied frame is processed independently:**
+    1. Frame 1 processing: np.random.choice() selects random data for missing locations
+    2. Frame 2 processing: np.random.choice() makes NEW random selections (independent)
+    3. Frame N processing: Each gets its own random selections
+    
+    This ensures different random choices across multiplied frames, providing
+    excellent data augmentation for training.
+    
+    Example: 10 copies of round5_SigSci-SWIFT_A-2024-08-01 with missing location 11:
+    - Copy 1: filled with round4_USC-SIkJalpha_B-2023-08-14/sample_15
+    - Copy 2: filled with round5_NotreDame-FRED_D-2023-08-14/sample_8  
+    - Copy 3: filled with round4_MOBS_NEU-GLEAM_FLU_C-2023-08-14/sample_22
+    - etc. (each gets different random fill data)
+    """
     if not actual_locations:
         # Fallback to zeros if no existing data
         return _fill_missing_with_zeros(frame, missing_locations)
@@ -462,13 +492,19 @@ def _build_global_lookup_table(all_datasets_df: pd.DataFrame) -> dict:
             # Group by year for quick year-based lookups
             year_groups = h1_data.groupby('fluseason')
             for year, year_data in year_groups:
-                # Store first sample for each year (could be optimized further)
-                sample_data = year_data.groupby('sample').first().iloc[0]
-                lookup[location][h1_name]['by_year'][year] = {
-                    'data': year_data[year_data['sample'] == sample_data.name][['season_week', 'value', 'week_enddate']].copy(),
-                    'h2': sample_data['datasetH2'],
-                    'sample': sample_data.name
-                }
+                # Pick first unique H2/sample combination for each year to avoid duplicates
+                unique_combos = year_data.groupby(['datasetH2', 'sample']).first().reset_index()
+                if not unique_combos.empty:
+                    first_combo = unique_combos.iloc[0]
+                    specific_data = year_data[
+                        (year_data['datasetH2'] == first_combo['datasetH2']) & 
+                        (year_data['sample'] == first_combo['sample'])
+                    ]
+                    lookup[location][h1_name]['by_year'][year] = {
+                        'data': specific_data[['season_week', 'value', 'week_enddate']].copy(),
+                        'h2': first_combo['datasetH2'],
+                        'sample': first_combo['sample']
+                    }
             
             # Also store by sample for sample-based lookups
             sample_groups = h1_data.groupby(['fluseason', 'sample'])
@@ -571,175 +607,6 @@ def _find_different_h1(location_lookup: dict, current_h1: str) -> tuple:
             return data, source
     
     return None
-
-
-def _build_fill_cache(frame: pd.DataFrame, missing_locations: set, all_datasets_df: pd.DataFrame) -> dict:
-    """Build a cache of fill data for all missing locations at once."""
-    if all_datasets_df is None:
-        return {}
-    
-    # Get frame metadata once
-    current_h1 = frame['datasetH1'].iloc[0] if 'datasetH1' in frame.columns else None
-    current_season = frame['fluseason'].iloc[0] if 'fluseason' in frame.columns else None
-    current_sample = frame['sample'].iloc[0] if 'sample' in frame.columns else None
-    
-    cache = {}
-    
-    # Pre-filter the dataset for better performance
-    same_h1_data = all_datasets_df[all_datasets_df['datasetH1'] == current_h1] if current_h1 else pd.DataFrame()
-    other_h1_data = all_datasets_df[all_datasets_df['datasetH1'] != current_h1] if current_h1 else pd.DataFrame()
-    
-    for location in missing_locations:
-        fill_data = None
-        fill_source = None
-        
-        # Strategy 1: Same location, different year in same H1
-        if not same_h1_data.empty:
-            location_same_h1 = same_h1_data[same_h1_data['location_code'] == location]
-            if not location_same_h1.empty:
-                # Try different year first
-                different_year = location_same_h1[location_same_h1['fluseason'] != current_season]
-                if not different_year.empty:
-                    # Pick first available year/sample combination
-                    sample_row = different_year.iloc[0]
-                    fill_data = _extract_specific_data(all_datasets_df, location, sample_row)
-                    fill_source = f"same_location_year_{sample_row['fluseason']}_sample_{sample_row['sample']}"
-                else:
-                    # Try different sample same year
-                    different_sample = location_same_h1[
-                        (location_same_h1['fluseason'] == current_season) & 
-                        (location_same_h1['sample'] != current_sample)
-                    ]
-                    if not different_sample.empty:
-                        sample_row = different_sample.iloc[0]
-                        fill_data = _extract_specific_data(all_datasets_df, location, sample_row)
-                        fill_source = f"same_location_sample_{sample_row['sample']}"
-        
-        # Strategy 2: Same location, different H1 dataset
-        if fill_data is None and not other_h1_data.empty:
-            location_other_h1 = other_h1_data[other_h1_data['location_code'] == location]
-            if not location_other_h1.empty:
-                sample_row = location_other_h1.iloc[0]
-                fill_data = _extract_specific_data(all_datasets_df, location, sample_row)
-                fill_source = f"same_location_{sample_row['datasetH1']}_year_{sample_row['fluseason']}"
-        
-        # Cache the result (None if no intelligent fill found)
-        if fill_data is not None:
-            cache[location] = (fill_data, fill_source)
-    
-    return cache
-
-
-def _extract_specific_data(all_datasets_df: pd.DataFrame, location: str, sample_row: pd.Series) -> pd.DataFrame:
-    """Extract specific location data based on sample row metadata."""
-    extracted = all_datasets_df[
-        (all_datasets_df['datasetH1'] == sample_row['datasetH1']) &
-        (all_datasets_df['datasetH2'] == sample_row['datasetH2']) &
-        (all_datasets_df['fluseason'] == sample_row['fluseason']) &
-        (all_datasets_df['sample'] == sample_row['sample']) &
-        (all_datasets_df['location_code'] == location)
-    ][['season_week', 'value', 'week_enddate']].copy()
-    
-    return extracted if not extracted.empty else None
-
-
-def _find_intelligent_fill_data(frame: pd.DataFrame, missing_location: str, 
-                               actual_locations: set, all_datasets_df: pd.DataFrame = None) -> tuple:
-    """
-    Find intelligent fill data for a missing location.
-    
-    Priority order:
-    1. Same location from different year/sample in same H1 dataset
-    2. Same location from different H1 dataset  
-    3. Random location from current frame (fallback)
-    
-    Returns:
-        tuple: (fill_data: pd.DataFrame, source_description: str) or (None, None)
-    """
-    if all_datasets_df is None:
-        # Fallback to random location from current frame
-        random_location = np.random.choice(list(actual_locations))
-        random_data = frame[frame['location_code'] == random_location].copy()
-        return random_data, f"random_from_{random_location}"
-    
-    # Get current frame metadata
-    current_h1 = frame['datasetH1'].iloc[0] if 'datasetH1' in frame.columns else None
-    current_h2 = frame['datasetH2'].iloc[0] if 'datasetH2' in frame.columns else None
-    current_season = frame['fluseason'].iloc[0] if 'fluseason' in frame.columns else None
-    current_sample = frame['sample'].iloc[0] if 'sample' in frame.columns else None
-    
-    # Strategy 1: Same location, different year/sample in same H1 dataset
-    if current_h1:
-        same_h1_data = all_datasets_df[
-            (all_datasets_df['datasetH1'] == current_h1) & 
-            (all_datasets_df['location_code'] == missing_location)
-        ]
-        
-        # Prefer different year first, then different sample
-        if not same_h1_data.empty:
-            # Try different year first
-            different_year = same_h1_data[same_h1_data['fluseason'] != current_season]
-            if not different_year.empty:
-                sample_data = different_year.groupby(['datasetH2', 'fluseason', 'sample']).first().reset_index()
-                if not sample_data.empty:
-                    chosen = sample_data.iloc[0]
-                    fill_data = all_datasets_df[
-                        (all_datasets_df['datasetH1'] == chosen['datasetH1']) &
-                        (all_datasets_df['datasetH2'] == chosen['datasetH2']) &
-                        (all_datasets_df['fluseason'] == chosen['fluseason']) &
-                        (all_datasets_df['sample'] == chosen['sample']) &
-                        (all_datasets_df['location_code'] == missing_location)
-                    ][['season_week', 'value', 'week_enddate']].copy()
-                    
-                    source = f"same_location_year_{chosen['fluseason']}_sample_{chosen['sample']}"
-                    return fill_data, source
-            
-            # Try different sample in same year
-            different_sample = same_h1_data[
-                (same_h1_data['fluseason'] == current_season) & 
-                (same_h1_data['sample'] != current_sample)
-            ]
-            if not different_sample.empty:
-                sample_data = different_sample.groupby(['datasetH2', 'sample']).first().reset_index()
-                if not sample_data.empty:
-                    chosen = sample_data.iloc[0]
-                    fill_data = all_datasets_df[
-                        (all_datasets_df['datasetH1'] == chosen['datasetH1']) &
-                        (all_datasets_df['datasetH2'] == chosen['datasetH2']) &
-                        (all_datasets_df['fluseason'] == current_season) &
-                        (all_datasets_df['sample'] == chosen['sample']) &
-                        (all_datasets_df['location_code'] == missing_location)
-                    ][['season_week', 'value', 'week_enddate']].copy()
-                    
-                    source = f"same_location_sample_{chosen['sample']}"
-                    return fill_data, source
-    
-    # Strategy 2: Same location from different H1 dataset
-    different_h1_data = all_datasets_df[
-        (all_datasets_df['datasetH1'] != current_h1) & 
-        (all_datasets_df['location_code'] == missing_location)
-    ]
-    
-    if not different_h1_data.empty:
-        # Group by H1/H2/season/sample and pick first available
-        sample_data = different_h1_data.groupby(['datasetH1', 'datasetH2', 'fluseason', 'sample']).first().reset_index()
-        if not sample_data.empty:
-            chosen = sample_data.iloc[0]
-            fill_data = all_datasets_df[
-                (all_datasets_df['datasetH1'] == chosen['datasetH1']) &
-                (all_datasets_df['datasetH2'] == chosen['datasetH2']) &
-                (all_datasets_df['fluseason'] == chosen['fluseason']) &
-                (all_datasets_df['sample'] == chosen['sample']) &
-                (all_datasets_df['location_code'] == missing_location)
-            ][['season_week', 'value', 'week_enddate']].copy()
-            
-            source = f"same_location_{chosen['datasetH1']}_year_{chosen['fluseason']}"
-            return fill_data, source
-    
-    # Strategy 3: Fallback to random location from current frame
-    random_location = np.random.choice(list(actual_locations))
-    random_data = frame[frame['location_code'] == random_location].copy()
-    return random_data, f"random_from_{random_location}"
 
 
 def _preserve_columns(target_df: pd.DataFrame, source_df: pd.DataFrame, 

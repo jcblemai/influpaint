@@ -85,35 +85,58 @@ DATASET_GRIDS = {
 
 
 # %%
+for ds_name, mix_cfg in DATASET_GRIDS.items():
+    frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
 
-# %%
-#mix_cfg = DATASET_GRIDS["SURV_ONLY"]
-#frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+    for i, frame in enumerate(frame_list):
+        df = frame_list[i]
+        df["fluseason"] = i
+        frame_list[i] = df
+        assert df.season_week.max() == 53 and df.season_week.min() == 1, f"Frame {i} has invalid season_week range: {df.season_week.min()} to {df.season_week.max()}"
+        assert set(df["location_code"].unique()) == set(season_setup.locations), f"Frame {i} has invalid locations: {set(df['location_code'].unique())} vs {set(season_setup.locations)}"
+    assert set(pd.concat(frame_list).fluseason.unique()) == set(range(len(frame_list)))
 
+    all_frames_df = pd.concat(frame_list).reset_index(drop=True)
+    array_list = converters.dataframe_to_arraylist(df=all_frames_df, season_setup=season_setup)
+    
+    # save as an netcdf file
+    array = np.array(array_list)
+
+    flu_payload_array = xr.DataArray(array, 
+                    coords={'sample': np.arange(array.shape[0]),
+                        'feature': np.arange(array.shape[1]),
+                        'season_week': np.arange(1, array.shape[2]+1),
+                        'place': season_setup.locations + [""]*(array.shape[3] - len(season_setup.locations))}, 
+                    dims=["sample", "feature", "season_week", "place"])
+
+    # ge today's date
+    import datetime
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    # create the folder if exists:
+    Path("training_datasets").mkdir(parents=True, exist_ok=True)
+    flu_payload_array.to_netcdf(f"training_datasets/TS_{ds_name}_{today}.nc")
 
 
 # %%
 mix_cfg = DATASET_GRIDS["MOD_ONLY"]
-frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+
 
 # %%
-for i, frame in enumerate(frame_list):
-    df = frame_list[i]
-    df["fluseason"] = i
-    frame_list[i] = df
-    assert df.season_week.max() == 53 and df.season_week.min() == 1, f"Frame {i} has invalid season_week range: {df.season_week.min()} to {df.season_week.max()}"
-    assert set(df["location_code"].unique()) == set(season_setup.locations), f"Frame {i} has invalid locations: {set(df['location_code'].unique())} vs {set(season_setup.locations)}"
-assert set(pd.concat(frame_list).fluseason.unique()) == set(range(len(frame_list)))
+len(frame_list[0].location_code.unique())
 
-all_frames_df = pd.concat(frame_list).reset_index(drop=True)
-array_list = converters.dataframe_to_arraylist(df=all_frames_df, season_setup=season_setup)
+# %%
+
+# %%
+
+# %%
+flu_payload_array.shape
 
 # %%
 a = frame_list[880]
 a[a['location_code'] == '11'].sort_values(by='season_week')
 
 # %%
-all_frames_df.iloc[2379069:2379077]
+all_datasets_df[(all_datasets_df["datasetH2"]=="round5_SigSci-SWIFT_A-2024-08-01") & all_datasets_df["location_code"]=="11"]
 
 # %%
 all_frames_df[(all_frames_df['fluseason'] == 880) & (all_frames_df['location_code'] == '11')].sort_values(by='season_week')
@@ -146,23 +169,5 @@ frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=se
 # %%
 
 # %%
-# save as an netcdf file
-array = np.array(array_list)
-
-flu_payload_array = xr.DataArray(array, 
-                coords={'sample': np.arange(array.shape[0]),
-                    'feature': np.arange(array.shape[1]),
-                    'season_week': np.arange(1, array.shape[2]+1),
-                    'place': season_setup.locations + [""]*(array.shape[3] - len(season_setup.locations))}, 
-                dims=["sample", "feature", "season_week", "place"])
-
-# ge today's date
-import datetime
-today = datetime.datetime.now().strftime("%Y-%m-%d")
-# create the folder if exists:
-Path("training_datasets").mkdir(parents=True, exist_ok=True)
-
-
-flu_payload_array.to_netcdf(f"training_datasets/NC_Flusight_{today}.nc")
 
 
