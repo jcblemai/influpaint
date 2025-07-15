@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import xarray as xr
-import build_dataset
+import read_datasources
 
 
 class FluDataset(torch.utils.data.Dataset):
@@ -28,44 +28,6 @@ class FluDataset(torch.utils.data.Dataset):
             f"created dataset with max {np.array(self.max_per_feature)}, full dataset has shape {self.flu_dyn.shape}"
         )
 
-    @classmethod
-    def build_from_dataframes(cls, dict_of_dfs,
-        season_setup, download=False, transform=None, transform_inv=None, channels=3):
-        """
-        list_of_dfs: list of dataframes Each dataframe with columns:
-
-        - 'week_enddate' (datetime)  the date of the saturday at the end of the week
-        - 'location_code' (str) location name in the format used by the flusight data
-        - 'value' (float) the value of interest
-        - 'fluseason' (int) the flu season (e.g. 2019)
-        - 'fluseason_fraction' (float) the fraction of the flu season (e.g. 0.5)
-        """
-        # add the dataframe together:
-        df = pd.concat(list_of_dfs.values())
-        # remove the locations not in the season_setup
-        df = df[df["location_code"].isin(season_setup.locations)]
-        # order the fluseasons by the number of locations with data
-        flu_seasons = df.groupby("fluseason")["location_code"].nunique().sort_values(ascending=False).index
-
-        # First create the part of the dataset that corresponds to to actuals syncronous flu season
-        for seas in flu_seasons:
-            df_seas = df[df["fluseason"] == seas]
-            df_seas = df_seas[df_seas["location_code"].isin(season_setup.locations)]
-            flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df_seas, season_setup=season_setup))
-            return cls(
-                flu_dyn=flu_dyn,
-                transform=transform,
-                transform_inv=transform_inv,
-                channels=channels,
-            )
-
-
-
-
-
-        df = fluview[fluview["location_code"].isin(season_setup.locations)]
-        flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
-
 
     @classmethod
     def from_SMHR1_fluview(
@@ -85,11 +47,11 @@ class FluDataset(torch.utils.data.Dataset):
             )
         flu_dyn1 = flu_dyn.data
 
-        fluview = build_dataset.get_from_epidata(
+        fluview = read_datasources.get_from_epidata(
             dataset="fluview", season_setup=season_setup, download=download, write=False
         )
         df = fluview[fluview["location_code"].isin(season_setup.locations)]
-        flu_dyn2 = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
+        flu_dyn2 = np.array(read_datasources.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         flu_dyn2 = flu_dyn2.repeat(90, axis=0)
         print(
@@ -155,7 +117,7 @@ class FluDataset(torch.utils.data.Dataset):
         df["fluseason"] = df["date"].apply(season_setup.get_fluseason_year)
         df["fluseason_fraction"] = df["date"].apply(season_setup.get_fluseason_fraction)
         flu_dyn = np.array(
-            build_dataset.dataframe_to_arraylist(
+            read_datasources.dataframe_to_arraylist(
                 df, season_setup=season_setup, value_column="incidH"
             )
         )
@@ -170,11 +132,11 @@ class FluDataset(torch.utils.data.Dataset):
     def from_fluview(
         cls, season_setup, download=False, transform=None, transform_inv=None, channels=3
     ):
-        fluview = build_dataset.get_from_epidata(
+        fluview = read_datasources.get_from_epidata(
             dataset="fluview", season_setup=season_setup, download=download, write=False
         )
         df = fluview[fluview["location_code"].isin(season_setup.locations)]
-        flu_dyn = np.array(build_dataset.dataframe_to_arraylist(df=df, season_setup=season_setup))
+        flu_dyn = np.array(read_datasources.dataframe_to_arraylist(df=df, season_setup=season_setup))
 
         return cls(
             flu_dyn=flu_dyn,

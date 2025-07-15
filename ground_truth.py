@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm.auto import tqdm
-from season_setup import SeasonSetup
+from season_axis import SeasonAxis
 
 
 import numpy as np
@@ -14,7 +14,7 @@ import xarray as xr
 
 import datetime
 
-import myutils, build_dataset
+import myutils, read_datasources
 
 
 def pad_dataframe(df, season_setup):
@@ -28,7 +28,7 @@ def pad_dataframe(df, season_setup):
     # Calculate the season columns
     expanded_df['fluseason'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_year)
     expanded_df['fluseason_fraction'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_fraction)
-    expanded_df['season_week'] = expanded_df.week_enddate.apply(season_setup.get_fluseason_week)
+    expanded_df['season_week'] = expanded_df.week_enddate.apply(season_setup.get_season_week)
 
     # Merge with original data to get values where they exist
     padded_df = expanded_df.merge(
@@ -59,16 +59,16 @@ class GroundTruth():
 
         if not nogit: self.git_checkout_data_rev(target_date=None)
 
-        self.season_setup = SeasonSetup.from_flusight(season_first_year=self.season_first_year, remove_territories=True, remove_us=True)
+        self.season_setup = SeasonAxis.from_flusight(season_first_year=self.season_first_year, remove_territories=True, remove_us=True)
 
-        flusight = build_dataset.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
+        flusight = read_datasources.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
         gt_df_final = flusight[flusight["fluseason"] == int(self.season_first_year)]
 
         if from_final_data:
             gt_df = gt_df_final.copy()
         else:
             if not nogit: self.git_checkout_data_rev(target_date=data_date)
-            flusight = build_dataset.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
+            flusight = read_datasources.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
             gt_df = flusight[flusight["fluseason"] == int(self.season_first_year)]   
             if not nogit: self.git_checkout_data_rev(target_date=None)
 
@@ -77,8 +77,8 @@ class GroundTruth():
         self.gt_df_final = gt_df_final[gt_df_final["location_code"].isin(self.season_setup.locations)]
         
         # generates past data
-        self.previous_data = [build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
-                            build_dataset.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
+        self.previous_data = [read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
+                            read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
         
 
 
@@ -121,11 +121,11 @@ class GroundTruth():
 
         self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
 
-        self.gt_xarr = build_dataset.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
+        self.gt_xarr = read_datasources.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHosp", 
             xarrax_features = "incidHosp")
         
-        self.gt_final_xarr = build_dataset.dataframe_to_xarray(self.gt_df_final, season_setup=self.season_setup, 
+        self.gt_final_xarr = read_datasources.dataframe_to_xarray(self.gt_df_final, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHos_final", 
             xarrax_features = "incidHosp")
 
