@@ -15,14 +15,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-import build_dataset, training_datasets
+# import build_dataset, training_datasets  # Not needed for ddpm
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.utils import save_image
 from torch.optim import Adam
 import datetime
 
-import myutils
+from ..utils import helpers as myutils
 
 
 class DDPM:

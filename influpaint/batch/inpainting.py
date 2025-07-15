@@ -19,8 +19,8 @@ import pandas as pd
 import torch
 import mlflow
 
-from .scenarios import ScenarioLibrary
-from .factory import ObjectFactory, TrainingRunConfig, copaint_config_library, create_folders
+from .scenarios import get_training_scenario
+from .config import copaint_config_library, create_folders
 import ground_truth
 
 sys.path.append('CoPaint4influpaint')
@@ -55,20 +55,12 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     if run_id and model_path:
         raise click.ClickException("Cannot provide both --run_id and --model_path. Choose one.")
     
-    # Configuration
-    run_config = TrainingRunConfig(
-        image_size=image_size,
-        channels=channels,
-        batch_size=batch_size,
-        epochs=800,  # Not used for inference, but needed for compatibility
-        device="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    
     # Get scenario specification
-    scenario_spec = ScenarioLibrary.get_training_scenario(scn_id)
+    scenario_spec = get_training_scenario(scn_id)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     print(f"Running inpainting for scenario {scn_id}: {scenario_spec.scenario_string}")
-    print(f"Device: {run_config.device}")
+    print(f"Device: {device}")
     print(f"Forecast date: {forecast_date}")
     print(f"Config: {config_name}")
     
@@ -86,7 +78,10 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
             "scenario_string": scenario_spec.scenario_string,
             "forecast_date": forecast_date,
             "config_name": config_name,
-            **run_config.to_dict()
+            "image_size": image_size,
+            "channels": channels,
+            "batch_size": batch_size,
+            "device": device
         }
         
         if run_id:
@@ -98,18 +93,11 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
             
         mlflow.log_params(params)
         
-        # Create heavy objects using factory
+        # Create objects using simple helper
         print("Creating model, dataset, and transforms...")
-        unet = ObjectFactory.create_unet(scenario_spec, run_config)
-        dataset = ObjectFactory.create_dataset(scenario_spec, season_setup)
-        transform, enrich, scaling_per_channel = ObjectFactory.create_transforms(scenario_spec, dataset)
-        
-        # Configure dataset with transforms
-        dataset.add_transform(
-            transform=transform["reg"], 
-            transform_inv=transform["inv"], 
-            transform_enrich=enrich, 
-            bypass_test=False
+        from .scenarios import create_scenario_objects
+        unet, dataset, transform, enrich, scaling_per_channel = create_scenario_objects(
+            scenario_spec, season_setup, image_size, channels, batch_size, 800, device
         )
         
         # Load trained model
@@ -120,7 +108,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("scaling_per_channel", scaling_per_channel.tolist())
         
         # Run inpainting
-        run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_date, config_name)
+        run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 
@@ -172,7 +160,7 @@ def load_model(unet, run_id=None, model_path=None):
         raise ValueError("Must provide either run_id or model_path")
 
 
-def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_date, config_name):
+def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name):
     """Run inpainting for a single scenario, date, and config"""
     model_id = scenario_spec.scenario_string
     print(f">>> Running inpainting for {model_id}")
@@ -203,15 +191,15 @@ def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_da
         season_first_year="2022",
         data_date=datetime.datetime.today(),
         mask_date=forecast_dt,
-        channels=run_config.channels,
-        image_size=run_config.image_size,
+        channels=channels,
+        image_size=image_size,
         nogit=True
     )
     
     # Prepare ground truth tensors
     gt = dataset.apply_transform(gt1.gt_xarr.data)
-    gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(run_config.device)
-    gt = torch.from_numpy(gt).type(torch.FloatTensor).to(run_config.device)
+    gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(device)
+    gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
     
     print(f">>> Running CoPaint with config: {config_name}")
     
@@ -229,11 +217,11 @@ def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_da
         # Run sampling
         result = sampler.p_sample_loop(
             model_fn=unet.model,
-            shape=(run_config.batch_size, run_config.channels, run_config.image_size, run_config.image_size),
+            shape=(batch_size, channels, image_size, image_size),
             conf=conf,
             model_kwargs={
-                "gt": gt.repeat(run_config.batch_size, 1, 1, 1),
-                "gt_keep_mask": gt_keep_mask.repeat(run_config.batch_size, 1, 1, 1),
+                "gt": gt.repeat(batch_size, 1, 1, 1),
+                "gt_keep_mask": gt_keep_mask.repeat(batch_size, 1, 1, 1),
                 "mymodel": True,
             }
         )

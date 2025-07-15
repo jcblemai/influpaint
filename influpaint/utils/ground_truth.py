@@ -5,7 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm.auto import tqdm
-from season_axis import SeasonAxis
+from . import season_axis
+from .season_axis import SeasonAxis
 
 
 import numpy as np
@@ -14,7 +15,8 @@ import xarray as xr
 
 import datetime
 
-import myutils, read_datasources
+from . import helpers as myutils
+from ..datasets import read_datasources
 
 
 def pad_dataframe(df, season_setup):

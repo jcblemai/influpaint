@@ -14,7 +14,7 @@ Usage:
 import click
 import pandas as pd
 from pathlib import Path
-from .scenarios import ScenarioLibrary
+from .scenarios import get_all_training_scenarios
 
 
 @click.command()

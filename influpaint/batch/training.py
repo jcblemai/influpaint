@@ -14,8 +14,8 @@ from torch.utils.data import DataLoader
 import mlflow
 import mlflow.pytorch
 
-from .scenarios import ScenarioLibrary
-from .factory import ObjectFactory, TrainingRunConfig, get_git_revision_short_hash, create_folders
+from .scenarios import get_training_scenario, create_scenario_objects
+from .config import get_git_revision_short_hash, create_folders
 from ..utils import plotting as idplots
 
 
@@ -38,20 +38,12 @@ season_setup = None  # This needs to be set based on your specific setup
 def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epochs):
     """Train a diffusion model for a specific scenario"""
     
-    # Configuration
-    run_config = TrainingRunConfig(
-        image_size=image_size,
-        channels=channels,
-        batch_size=batch_size,
-        epochs=epochs,
-        device="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    
     # Get scenario specification
-    scenario_spec = ScenarioLibrary.get_training_scenario(scn_id)
+    scenario_spec = get_training_scenario(scn_id)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     print(f"Training scenario {scn_id}: {scenario_spec.scenario_string}")
-    print(f"Device: {run_config.device}")
+    print(f"Device: {device}")
     
     # Set up MLflow
     mlflow.set_experiment(experiment_name)
@@ -65,21 +57,17 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
             "transform_name": scenario_spec.transform_name,
             "enrich_name": scenario_spec.enrich_name,
             "scenario_string": scenario_spec.scenario_string,
-            **run_config.to_dict()
+            "image_size": image_size,
+            "channels": channels,
+            "batch_size": batch_size,
+            "epochs": epochs,
+            "device": device
         })
         
-        # Create heavy objects using factory
+        # Create objects using simple helper
         print("Creating model, dataset, and transforms...")
-        unet = ObjectFactory.create_unet(scenario_spec, run_config)
-        dataset = ObjectFactory.create_dataset(scenario_spec, season_setup)
-        transform, enrich, scaling_per_channel = ObjectFactory.create_transforms(scenario_spec, dataset)
-        
-        # Configure dataset with transforms
-        dataset.add_transform(
-            transform=transform["reg"], 
-            transform_inv=transform["inv"], 
-            transform_enrich=enrich, 
-            bypass_test=False
+        unet, dataset, transform, enrich, scaling_per_channel = create_scenario_objects(
+            scenario_spec, season_setup, image_size, channels, batch_size, epochs, device
         )
         
         # Log additional parameters
@@ -87,12 +75,12 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run training
-        run_training(scenario_spec, unet, dataset, run_config, outdir)
+        run_training(scenario_spec, unet, dataset, image_size, channels, batch_size, epochs, device, outdir)
         
         print(f"Training completed for scenario {scn_id}")
 
 
-def run_training(scenario_spec, unet, dataset, run_config, outdir):
+def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size, epochs, device, outdir):
     """Run training for a scenario"""
     # Create output directory
     model_folder = f"{outdir}{get_git_revision_short_hash()}_{datetime.date.today()}"
@@ -103,7 +91,7 @@ def run_training(scenario_spec, unet, dataset, run_config, outdir):
     print(f">>> Saving to {model_folder}")
     
     # Create data loader
-    dataloader = DataLoader(dataset, batch_size=run_config.batch_size, shuffle=True, drop_last=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     print(f">>> Dataset size: {len(dataset)}, Batches per epoch: {len(dataloader)}")
     
     # Log training start
@@ -114,7 +102,7 @@ def run_training(scenario_spec, unet, dataset, run_config, outdir):
     unet.train(dataloader=dataloader)
     
     # Save model checkpoint
-    checkpoint_path = f"{model_folder}/{model_id}::{run_config.epochs}.pth"
+    checkpoint_path = f"{model_folder}/{model_id}::{epochs}.pth"
     unet.write_train_checkpoint(save_path=checkpoint_path)
     print(f">>> Model saved to {checkpoint_path}")
     
@@ -142,7 +130,7 @@ def run_training(scenario_spec, unet, dataset, run_config, outdir):
     for ipl in range(51, len(axes)):
         axes[ipl].axis('off')
     
-    samples_path = f"{model_folder}/{model_id}-{run_config.epochs}::samples.pdf"
+    samples_path = f"{model_folder}/{model_id}-{epochs}::samples.pdf"
     plt.tight_layout()
     plt.savefig(samples_path, bbox_inches='tight')
     mlflow.log_artifact(samples_path, "samples")
@@ -153,7 +141,7 @@ def run_training(scenario_spec, unet, dataset, run_config, outdir):
     # Log training completion metrics
     mlflow.log_metrics({
         "training_completed": 1,
-        "final_epoch": run_config.epochs,
+        "final_epoch": epochs,
         "samples_generated": samples[-1].shape[0]
     })
     
