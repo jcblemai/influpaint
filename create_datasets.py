@@ -25,14 +25,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import xarray as xr
-from season_axis import SeasonAxis
-import read_datasources
 import epiweeks
 import warnings
 import importlib
 import tqdm
-import dataset_mixer
-import idplots
+
+# InfluPaint modular imports
+from influpaint.utils import SeasonAxis
+from influpaint.datasets import build_frames
+from influpaint.utils import plotting as idplots
+from influpaint.datasets import mixer as dataset_mixer
+import read_datasources
 season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 
 # %%
@@ -117,7 +120,7 @@ dict_of_dfs = {
     #"flepiR1_df": {"df":flepiR1_df, "multiplier":1}
     }
 
-import dataset_mixer
+# dataset_mixer already imported above as: from influpaint.datasets import mixer as dataset_mixer
 
 final_frames, combined_df = dataset_mixer.build_frames(dict_of_dfs)
 seasons = sorted(combined_df['fluseason'].unique())
