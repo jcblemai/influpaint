@@ -19,7 +19,8 @@ import pandas as pd
 import torch
 import mlflow
 
-import epiframework
+from .scenarios import ScenarioLibrary
+from .factory import ObjectFactory, TrainingRunConfig, copaint_config_library, create_folders
 import ground_truth
 
 sys.path.append('CoPaint4influpaint')
@@ -55,7 +56,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         raise click.ClickException("Cannot provide both --run_id and --model_path. Choose one.")
     
     # Configuration
-    run_config = epiframework.TrainingRunConfig(
+    run_config = TrainingRunConfig(
         image_size=image_size,
         channels=channels,
         batch_size=batch_size,
@@ -64,7 +65,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     )
     
     # Get scenario specification
-    scenario_spec = epiframework.ScenarioLibrary.get_training_scenario(scn_id)
+    scenario_spec = ScenarioLibrary.get_training_scenario(scn_id)
     
     print(f"Running inpainting for scenario {scn_id}: {scenario_spec.scenario_string}")
     print(f"Device: {run_config.device}")
@@ -99,9 +100,9 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         
         # Create heavy objects using factory
         print("Creating model, dataset, and transforms...")
-        unet = epiframework.ObjectFactory.create_unet(scenario_spec, run_config)
-        dataset = epiframework.ObjectFactory.create_dataset(scenario_spec, season_setup)
-        transform, enrich, scaling_per_channel = epiframework.ObjectFactory.create_transforms(scenario_spec, dataset)
+        unet = ObjectFactory.create_unet(scenario_spec, run_config)
+        dataset = ObjectFactory.create_dataset(scenario_spec, season_setup)
+        transform, enrich, scaling_per_channel = ObjectFactory.create_transforms(scenario_spec, dataset)
         
         # Configure dataset with transforms
         dataset.add_transform(
@@ -184,7 +185,7 @@ def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_da
         raise ValueError(f"Invalid forecast_date format: {forecast_date}. Use YYYY-MM-DD")
     
     # Validate config exists
-    available_configs = epiframework.copaint_config_library(unet.timesteps)
+    available_configs = copaint_config_library(unet.timesteps)
     if config_name not in available_configs:
         available = list(available_configs.keys())
         raise ValueError(f"Config '{config_name}' not found. Available: {available}")
@@ -193,7 +194,7 @@ def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_da
     
     # Create output directory structure
     output_folder = f"{outdir}/forecasts_{datetime.date.today()}"
-    epiframework.create_folders(output_folder)
+    create_folders(output_folder)
     
     print(f">>> Creating ground truth for {forecast_dt.date()}")
     
@@ -245,7 +246,7 @@ def run_inpainting(scenario_spec, unet, dataset, run_config, outdir, forecast_da
         # Save results
         forecast_fn = f"{model_id}::inpaint_CoPaint::conf_{config_name}"
         inpaint_folder = f"{output_folder}/{forecast_fn}"
-        epiframework.create_folders(inpaint_folder)
+        create_folders(inpaint_folder)
         
         gt1.export_forecasts(
             fluforecasts_ti=fluforecasts_ti,

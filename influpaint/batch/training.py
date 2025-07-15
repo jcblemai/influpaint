@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader
 import mlflow
 import mlflow.pytorch
 
-from . import hyperparameter_configs as epiframework
+from .scenarios import ScenarioLibrary
+from .factory import ObjectFactory, TrainingRunConfig, get_git_revision_short_hash, create_folders
 from ..utils import plotting as idplots
 
 
@@ -38,7 +39,7 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
     """Train a diffusion model for a specific scenario"""
     
     # Configuration
-    run_config = epiframework.TrainingRunConfig(
+    run_config = TrainingRunConfig(
         image_size=image_size,
         channels=channels,
         batch_size=batch_size,
@@ -47,7 +48,7 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
     )
     
     # Get scenario specification
-    scenario_spec = epiframework.ScenarioLibrary.get_training_scenario(scn_id)
+    scenario_spec = ScenarioLibrary.get_training_scenario(scn_id)
     
     print(f"Training scenario {scn_id}: {scenario_spec.scenario_string}")
     print(f"Device: {run_config.device}")
@@ -69,9 +70,9 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
         
         # Create heavy objects using factory
         print("Creating model, dataset, and transforms...")
-        unet = epiframework.ObjectFactory.create_unet(scenario_spec, run_config)
-        dataset = epiframework.ObjectFactory.create_dataset(scenario_spec, season_setup)
-        transform, enrich, scaling_per_channel = epiframework.ObjectFactory.create_transforms(scenario_spec, dataset)
+        unet = ObjectFactory.create_unet(scenario_spec, run_config)
+        dataset = ObjectFactory.create_dataset(scenario_spec, season_setup)
+        transform, enrich, scaling_per_channel = ObjectFactory.create_transforms(scenario_spec, dataset)
         
         # Configure dataset with transforms
         dataset.add_transform(
@@ -94,8 +95,8 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
 def run_training(scenario_spec, unet, dataset, run_config, outdir):
     """Run training for a scenario"""
     # Create output directory
-    model_folder = f"{outdir}{epiframework.get_git_revision_short_hash()}_{datetime.date.today()}"
-    epiframework.create_folders(model_folder)
+    model_folder = f"{outdir}{get_git_revision_short_hash()}_{datetime.date.today()}"
+    create_folders(model_folder)
     
     model_id = scenario_spec.scenario_string
     print(f">>> Training {model_id}")

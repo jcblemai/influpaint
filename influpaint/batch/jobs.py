@@ -14,7 +14,7 @@ Usage:
 import click
 import pandas as pd
 from pathlib import Path
-import epiframework
+from .scenarios import ScenarioLibrary
 
 
 @click.command()
@@ -102,7 +102,7 @@ CONFIG=$(echo $JOB_LINE | cut -d',' -f4)
 echo "Scenario: ${{SCENARIO_ID}}, Date: ${{DATE}}, Config: ${{CONFIG}}"
 
 # Get the MLflow run ID for this scenario
-RUN_ID=$(/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python get_mlflow_run_id.py \\
+RUN_ID=$(/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python influpaint/batch/mlflow_utils.py \\
     -e "${{TRAINING_EXP}}" \\
     -s ${{SCENARIO_ID}})
 
@@ -114,7 +114,7 @@ fi
 echo "Found trained model: ${{RUN_ID}}"
 
 # Run atomic inpainting
-/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u inpaint.py \\
+/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/inpainting.py \\
     -s ${{SCENARIO_ID}} \\
     -r "${{RUN_ID}}" \\
     -e "${{INPAINT_EXP}}" \\
