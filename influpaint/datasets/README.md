@@ -89,21 +89,15 @@ Example with 10 copies of the same frame missing location '11':
 
 Load and transform epidemic data for training.
 
-**Training Dataset Loader:**
+**Loading from xarray:**
 ```python
 from influpaint.datasets import loaders
 
-# Load from training_datasets/ directory
-dl = loaders.FluDataset.from_training_dataset("SURV_ONLY")
-dl = loaders.FluDataset.from_training_dataset("HYBRID_70S_30M") 
-dl = loaders.FluDataset.from_training_dataset("MOD_ONLY")
+# Load from any NetCDF file
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_SURV_ONLY_2025-07-14.nc")
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_HYBRID_70S_30M_2025-07-14.nc") 
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_MOD_ONLY_2025-07-14.nc")
 ```
-
-**Available Training Datasets:**
-- `SURV_ONLY`: Surveillance data only (fluview + flusurv)
-- `HYBRID_70S_30M`: 70% surveillance, 30% modeling data
-- `HYBRID_30S_70M`: 30% surveillance, 70% modeling data  
-- `MOD_ONLY`: Modeling data only (flepiR1 + SMH_R4-R5)
 
 ### 4. Source Readers (`read_datasources.py`)
 
@@ -218,9 +212,9 @@ flu_payload_array.to_netcdf("training_datasets/TS_HYBRID_70S_30M_2024-07-15.nc")
 from influpaint.datasets import loaders
 
 # Load any of the DATASET_GRIDS scenarios
-dl = loaders.FluDataset.from_training_dataset("HYBRID_70S_30M")
-dl = loaders.FluDataset.from_training_dataset("MOD_ONLY")
-dl = loaders.FluDataset.from_training_dataset("SURV_ONLY")
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_HYBRID_70S_30M_2025-07-14.nc")
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_MOD_ONLY_2025-07-14.nc")
+dl = loaders.FluDataset.from_xarray("training_datasets/TS_SURV_ONLY_2025-07-14.nc")
 ```
 
 This provides a complete pipeline from raw surveillance data to training-ready epidemic frames.

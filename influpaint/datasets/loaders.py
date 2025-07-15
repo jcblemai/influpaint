@@ -103,6 +103,31 @@ class FluDataset(torch.utils.data.Dataset):
         )
 
     @classmethod
+    def from_xarray(
+        cls, netcdf_file, transform=None, transform_inv=None, channels=1
+    ):
+        """
+        Load dataset from xarray NetCDF file.
+        
+        Args:
+            netcdf_file: Full path to NetCDF file
+            transform: Transform function
+            transform_inv: Inverse transform function  
+            channels: Number of channels
+            
+        Returns:
+            FluDataset instance
+        """
+        flu_dyn = xr.open_dataarray(netcdf_file)
+        flu_dyn = flu_dyn.data[:, :channels, :, :]  # Select the right number of channels
+        return cls(
+            flu_dyn=flu_dyn,
+            transform=transform,
+            transform_inv=transform_inv,
+            channels=channels,
+        )
+
+    @classmethod
     def from_flusurvCSP(cls, season_setup, transform=None, transform_inv=None, channels=3):
         csp_flusurv = pd.read_csv(
             "Flusight/flu-datasets/flu_surv_cspGT.csv", parse_dates=["date"]
