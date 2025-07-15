@@ -8,7 +8,7 @@ This module addresses common challenges in epidemic modeling:
 - **Dataset Rebalancing**: Weight multiple data sources for target proportions
 - **Temporal Completeness**: Ensure all frames have complete weekly coverage (1-53)
 - **Spatial Completeness**: Fill missing location-season combinations
-- **Intelligent Gap Filling**: Handle missing data with different fill strategies
+- **Gap Filling**: Handle missing data with different fill strategies
 
 ## Core Components
 
@@ -68,9 +68,9 @@ config = {
 - `"random"`: Intelligent hierarchical filling with randomization
 - `"skip"`: Skip frames with missing locations
 
-### 2. Intelligent Location Filling
+### 2. Location Filling
 
-The `random` fill strategy uses a sophisticated hierarchy:
+The `random` fill strategy uses a hierarchy:
 
 1. **Priority 1**: Same H1 dataset, different year → random year + random sample
 2. **Priority 2**: Same H1 dataset, different sample → random sample from same year  
@@ -88,6 +88,22 @@ Example with 10 copies of the same frame missing location '11':
 ### 3. Data Loaders (`loaders.py`)
 
 Load and transform epidemic data for training.
+
+**Training Dataset Loader:**
+```python
+from influpaint.datasets import loaders
+
+# Load from training_datasets/ directory
+dl = loaders.FluDataset.from_training_dataset("SURV_ONLY")
+dl = loaders.FluDataset.from_training_dataset("HYBRID_70S_30M") 
+dl = loaders.FluDataset.from_training_dataset("MOD_ONLY")
+```
+
+**Available Training Datasets:**
+- `SURV_ONLY`: Surveillance data only (fluview + flusurv)
+- `HYBRID_70S_30M`: 70% surveillance, 30% modeling data
+- `HYBRID_30S_70M`: 30% surveillance, 70% modeling data  
+- `MOD_ONLY`: Modeling data only (flepiR1 + SMH_R4-R5)
 
 ### 4. Source Readers (`read_datasources.py`)
 
@@ -169,6 +185,7 @@ This module integrates with:
 
 ## Example Workflow
 
+### Option 1: Create New Training Dataset
 ```python
 # 1. Load surveillance datasets
 all_datasets_df = pd.read_parquet("Flusight/flu-datasets/all_datasets.parquet")
@@ -179,22 +196,31 @@ config = {
     "SMH_R4-R5": {"proportion": 0.3, "total": 3000}
 }
 
-# 3. Build frames with intelligent filling
+# 3. Build frames with filling
 frames = dataset_mixer.build_frames(
     all_datasets_df, config, season_setup, 
     fill_missing_locations="random"
 )
 
-# 4. Convert to training arrays
+# 4. Convert to training arrays and save
 all_frames_df = pd.concat(frames).reset_index(drop=True)
 array_list = converters.dataframe_to_arraylist(
     df=all_frames_df, season_setup=season_setup
 )
-
-# 5. Save as training dataset
 array = np.array(array_list)
 flu_payload_array = xr.DataArray(array, dims=["sample", "feature", "season_week", "place"])
-flu_payload_array.to_netcdf("training_datasets/TS_dataset_2024-07-15.nc")
+flu_payload_array.to_netcdf("training_datasets/TS_HYBRID_70S_30M_2024-07-15.nc")
+```
+
+### Option 2: Use Pre-generated Training Dataset
+```python
+# Direct loading from training_datasets/
+from influpaint.datasets import loaders
+
+# Load any of the DATASET_GRIDS scenarios
+dl = loaders.FluDataset.from_training_dataset("HYBRID_70S_30M")
+dl = loaders.FluDataset.from_training_dataset("MOD_ONLY")
+dl = loaders.FluDataset.from_training_dataset("SURV_ONLY")
 ```
 
 This provides a complete pipeline from raw surveillance data to training-ready epidemic frames.
