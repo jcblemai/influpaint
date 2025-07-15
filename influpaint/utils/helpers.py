@@ -17,7 +17,15 @@ import xarray as xr
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import datetime
+import subprocess
+from pathlib import Path
 
+
+def get_git_revision_short_hash() -> str:
+    return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+
+def create_folders(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 flusight_quantiles = np.append(np.append([0.01,0.025],np.arange(0.05,0.95+0.05,0.050)), [0.975,0.99])
 flusight_quantile_pairs = np.array([flusight_quantiles[:11],flusight_quantiles[12:][::-1]]).T
@@ -38,7 +46,7 @@ def get_folders_in_directory(directory_path):
 
 def extract(a, t, x_shape):
     """
-    define an `extract` function, which will allow us to extract the appropriate \\(t\\) index for a batch of indices.
+    define an `extract` function, which will allow us to extract the appropriate \(t\) index for a batch of indices.
     """
     batch_size = t.shape[0]
     out = a.gather(-1, t.cpu())
