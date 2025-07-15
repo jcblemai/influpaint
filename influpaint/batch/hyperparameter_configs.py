@@ -3,8 +3,15 @@ import itertools
 import datetime
 import numpy as np
 import pandas as pd
-import build_dataset, training_datasets
-import nn_blocks, idplots, ddpm, myutils, inpaint_module, ground_truth
+import read_datasources
+from ..datasets import loaders as training_datasets
+from ..models import nn_blocks, ddpm
+from ..utils import plotting as idplots, helpers as myutils, ground_truth
+import inpaint_module
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
+import subprocess
+from pathlib import Path
 
 import sys
 sys.path.append('CoPaint4influpaint')
@@ -225,21 +232,90 @@ def model_libary(image_size, channels, epoch, device, batch_size):
                     device=device)
     }
     return unet_spec
-def dataset_library(gt1, channels):
+def dataset_library(season_setup, channels):
     dataset_spec = {
-            #"Fv":training_datasets.FluDataset.from_fluview(season_setup=gt1.season_setup, download=False),
-            "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=gt1.season_setup, download=False),
+            #"Fv":training_datasets.FluDataset.from_fluview(season_setup=season_setup, download=False),
+            "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=season_setup, download=False),
             "R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
     }
     return dataset_spec
 
 
+@dataclass(frozen=True)
+class TrainingScenarioSpec:
+    """Specification for a training scenario - no heavy objects, just config"""
+    scenario_id: int
+    unet_name: str
+    dataset_name: str
+    transform_name: str
+    enrich_name: str
+    
+    @property
+    def scenario_string(self) -> str:
+        return f"i{self.scenario_id}::model_{self.unet_name}::dataset_{self.dataset_name}::trans_{self.transform_name}::enrich_{self.enrich_name}"
+    
+    @property
+    def timesteps(self) -> int:
+        return 200 if self.unet_name == "MyUnet200" else 500
+    
+    @property
+    def model_key(self) -> str:
+        return f"{self.unet_name}"
+    
+    @property 
+    def dataset_key(self) -> str:
+        return f"{self.dataset_name}"
+
+@dataclass(frozen=True)
+class InpaintingScenarioSpec:
+    """Specification for an inpainting scenario"""
+    scenario_id: int
+    config_name: str
+    
+    @property
+    def scenario_string(self) -> str:
+        return f"i{self.scenario_id}::conf_{self.config_name}"
+
+@dataclass
+class TrainingRunConfig:
+    """Runtime configuration for training"""
+    image_size: int = 64
+    channels: int = 1
+    batch_size: int = 512
+    epochs: int = 800
+    device: str = "cuda"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "image_size": self.image_size,
+            "channels": self.channels, 
+            "batch_size": self.batch_size,
+            "epochs": self.epochs,
+            "device": self.device
+        }
+
+@dataclass
+class ExperimentConfig:
+    """Overall experiment configuration"""
+    experiment_name: str
+    season_setup: Any
+    season_first_year: str = "2022"
+    data_date: datetime.datetime = datetime.datetime(2022, 10, 25)
+    mask_date: datetime.datetime = datetime.datetime(2022, 10, 25)
+    output_directory: str = '/work/users/c/h/chadi/influpaint_res/'
+    
+    @property
+    def training_experiment_name(self) -> str:
+        return f"{self.experiment_name}_training"
+    
+    @property
+    def inpainting_experiment_name(self) -> str:
+        return f"{self.experiment_name}_inpainting"
+
 def get_git_revision_short_hash() -> str:
-    import subprocess
     return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
 
 def create_folders(path):
-    from pathlib import Path
     Path(path).mkdir(parents=True, exist_ok=True)
 
 def transform_library(scaling_per_channel):
@@ -297,98 +373,180 @@ def transform_library(scaling_per_channel):
     return transforms_spec, transform_enrich
 
 
-def create_all_ddpm_scenarios(experiment_name, image_size, channels, epoch, device, batch_size, gt1):
-    unet_spec = model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
-    dataset_spec = dataset_library(gt1=gt1, channels=channels)
-
-    this_scn_id = 0
-    all_ddpm_scenarios = []
+class ObjectFactory:
+    """Factory for creating heavy objects from scenario specs"""
     
-    for unet_name, unet in unet_spec.items():
-        for dataset_name, dataset in dataset_spec.items():
+    @staticmethod
+    def create_unet(spec: TrainingScenarioSpec, run_config: TrainingRunConfig):
+        """Create unet from scenario spec"""
+        unet_spec = model_libary(
+            image_size=run_config.image_size,
+            channels=run_config.channels, 
+            epoch=run_config.epochs,
+            device=run_config.device,
+            batch_size=run_config.batch_size
+        )
+        return unet_spec[spec.unet_name]
+    
+    @staticmethod
+    def create_dataset(spec: TrainingScenarioSpec, season_setup):
+        """Create dataset from scenario spec"""
+        dataset_spec = dataset_library(season_setup=season_setup, channels=1)  # assume channels=1
+        return dataset_spec[spec.dataset_name]
+    
+    @staticmethod
+    def create_transforms(spec: TrainingScenarioSpec, dataset):
+        """Create transforms from scenario spec"""
+        try:
             scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
-            transforms_spec, transform_enrich = transform_library(scaling_per_channel=scaling_per_channel)
-            for transform_name, transform in transforms_spec.items():
-                for enrich_name, enrich in transform_enrich.items():
-                    scenarios_strid = f"i{this_scn_id}::model_{unet_name}::dataset_{dataset_name}::trans_{transform_name}::enrich_{enrich_name}"
-                    scenarios_config = {
-                        "experiment_name": experiment_name,
-                        "scenarios_strid": scenarios_strid,
-                        "scenarios_id": this_scn_id,
-                        "unet_name": unet_name,
-                        "dataset_name": dataset_name,
-                        "transform_name": transform_name,
-                        "enrich_name": enrich_name,
-                        "unet": unet,
-                        "dataset": dataset,
-                        "transform": transform,
-                        "enrich": enrich,
-                        "scaling_per_channel": scaling_per_channel
-                    }
-                    all_ddpm_scenarios.append(scenarios_config)
-                    this_scn_id += 1
-    print(f"Total number of DDPM scenarios: {len(all_ddpm_scenarios)}")
-    return all_ddpm_scenarios
+        except NameError:
+            scaling_per_channel = np.array(dataset.max_per_feature)
+        
+        transforms_spec, transform_enrich = transform_library(scaling_per_channel=scaling_per_channel)
+        transform = transforms_spec[spec.transform_name]
+        enrich = transform_enrich[spec.enrich_name]
+        return transform, enrich, scaling_per_channel
 
-def create_all_inpainting_scenarios(experiment_name, n_diffusion_steps):
-    this_scn_id = 0
-    all_inpainting_scenarios = []
-    for conf_name, conf in copaint_config_library(n_diffusion_steps).items():
-        scenarios_strid = f"i{this_scn_id}::conf_{conf_name}"
+class ScenarioLibrary:
+    """Library that creates scenario specifications"""
+    
+    @staticmethod
+    def get_available_models() -> List[str]:
+        """Get list of available model names"""
+        return ["MyUnet200", "MyUnet500"]
+    
+    @staticmethod
+    def get_available_datasets() -> List[str]:
+        """Get list of available dataset names"""
+        return ["R1Fv", "R1"]
+    
+    @staticmethod
+    def get_available_transforms() -> List[str]:
+        """Get list of available transform names"""
+        return ["Lins", "Sqrt"]
+    
+    @staticmethod
+    def get_available_enrichments() -> List[str]:
+        """Get list of available enrichment names"""
+        return ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
+    
+    @staticmethod
+    def get_available_copaint_configs() -> List[str]:
+        """Get list of available CoPaint config names"""
+        return ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
+    
+    @staticmethod
+    def get_training_scenarios() -> List[TrainingScenarioSpec]:
+        """Get all training scenario specifications"""
+        scenarios = []
+        scn_id = 0
+        
+        for unet_name in ScenarioLibrary.get_available_models():
+            for dataset_name in ScenarioLibrary.get_available_datasets():
+                for transform_name in ScenarioLibrary.get_available_transforms():
+                    for enrich_name in ScenarioLibrary.get_available_enrichments():
+                        scenario = TrainingScenarioSpec(
+                            scenario_id=scn_id,
+                            unet_name=unet_name,
+                            dataset_name=dataset_name,
+                            transform_name=transform_name,
+                            enrich_name=enrich_name
+                        )
+                        scenarios.append(scenario)
+                        scn_id += 1
+        
+        return scenarios
+    
+    @staticmethod
+    def get_inpainting_scenarios() -> List[InpaintingScenarioSpec]:
+        """Get all inpainting scenario specifications"""
+        scenarios = []
+        scn_id = 0
+        
+        for config_name in ScenarioLibrary.get_available_copaint_configs():
+            scenario = InpaintingScenarioSpec(
+                scenario_id=scn_id,
+                config_name=config_name
+            )
+            scenarios.append(scenario)
+            scn_id += 1
+        
+        return scenarios
+    
+    @staticmethod
+    def get_training_scenario(scenario_id: int) -> TrainingScenarioSpec:
+        """Get specific training scenario by ID"""
+        scenarios = ScenarioLibrary.get_training_scenarios()
+        if scenario_id >= len(scenarios):
+            raise ValueError(f"Scenario ID {scenario_id} out of range. Max: {len(scenarios)-1}")
+        return scenarios[scenario_id]
+    
+    @staticmethod
+    def get_inpainting_scenario(scenario_id: int) -> InpaintingScenarioSpec:
+        """Get specific inpainting scenario by ID"""
+        scenarios = ScenarioLibrary.get_inpainting_scenarios()
+        if scenario_id >= len(scenarios):
+            raise ValueError(f"Scenario ID {scenario_id} out of range. Max: {len(scenarios)-1}")
+        return scenarios[scenario_id]
+
+def create_all_ddpm_scenarios(experiment_name, image_size, channels, epoch, device, batch_size, season_setup):
+    """Legacy function - creates scenarios with heavy objects for backward compatibility"""
+    scenarios = []
+    all_specs = ScenarioLibrary.get_training_scenarios()
+    
+    unet_spec = model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
+    dataset_spec = dataset_library(season_setup=season_setup, channels=channels)
+    
+    for spec in all_specs:
+        # Get heavy objects
+        unet = unet_spec[spec.unet_name]
+        dataset = dataset_spec[spec.dataset_name]
+        
+        # This assumes gt1 is available globally - may need to be passed as parameter
+        try:
+            scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
+        except NameError:
+            # Fallback if gt1 not available
+            scaling_per_channel = np.array(dataset.max_per_feature)
+        
+        transforms_spec, transform_enrich = transform_library(scaling_per_channel=scaling_per_channel)
+        transform = transforms_spec[spec.transform_name]
+        enrich = transform_enrich[spec.enrich_name]
+        
         scenarios_config = {
             "experiment_name": experiment_name,
-            "scenarios_strid": scenarios_strid,
-            "conf_name": conf_name,
+            "scenarios_strid": spec.scenario_string,
+            "scenarios_id": spec.scenario_id,
+            "unet_name": spec.unet_name,
+            "dataset_name": spec.dataset_name,
+            "transform_name": spec.transform_name,
+            "enrich_name": spec.enrich_name,
+            "unet": unet,
+            "dataset": dataset,
+            "transform": transform,
+            "enrich": enrich,
+            "scaling_per_channel": scaling_per_channel
+        }
+        scenarios.append(scenarios_config)
+    
+    print(f"Total number of DDPM scenarios: {len(scenarios)}")
+    return scenarios
+
+def create_all_inpainting_scenarios(experiment_name, n_diffusion_steps):
+    """Legacy function - creates scenarios with heavy objects for backward compatibility"""
+    scenarios = []
+    all_specs = ScenarioLibrary.get_inpainting_scenarios()
+    config_lib = copaint_config_library(n_diffusion_steps)
+    
+    for spec in all_specs:
+        conf = config_lib[spec.config_name]
+        scenarios_config = {
+            "experiment_name": experiment_name,
+            "scenarios_strid": spec.scenario_string,
+            "conf_name": spec.config_name,
             "config": conf
         }
-        all_inpainting_scenarios.append(scenarios_config)
-        this_scn_id += 1
-    print(f"Total number of inpainting scenarios: {len(all_inpainting_scenarios)}")
-    return all_inpainting_scenarios
-
-
-
-def create_run_config(run_id, specifications):
-
-    if setup.scale == 'Regions':
-        scenarios_specs = {
-            'dataset': [3, 15, 150],  # ax.set_ylim(0.05, 0.4)
-            # 'vacctotalM': [2, 5, 10, 15, 20],
-            'newdoseperweek': [125000, 250000, 479700, 1e6, 1.5e6, 2e6],
-            'epicourse': ['U', 'L']  # 'U'
-        }
-    elif setup.scale == 'Provinces':
-        if setup.nnodes == 107:
-            scenarios_specs = {
-                'vaccpermonthM': [3, 15, 150],  # ax.set_ylim(0.05, 0.4)
-                # 'vacctotalM': [2, 5, 10, 15, 20],
-                'newdoseperweek': [125000, 250000, 479700, 1e6, 1.5e6, 2e6],
-                'epicourse': ['U', 'L']  # 'U'
-            }
-        elif setup.nnodes == 10:
-            scenarios_specs = {
-                'newdoseperweek': [125000*10, 250000*10],
-                'vaccpermonthM': [14*10, 15*10],
-                'epicourse': ['U']  # 'U', 'L'
-            }
-
-    # Compute all permutatios
-    keys, values = zip(*scenarios_specs.items())
-    permuted_specs = [dict(zip(keys, v)) for v in itertools.product(*values)]
-    specs_df = pd.DataFrame.from_dict(permuted_specs)
-
-    if setup.nnodes == 107:
-        specs_df = specs_df[((specs_df['vaccpermonthM'] == 15.0) | (specs_df['newdoseperweek'] == 479700.0))].reset_index(drop=True) # Filter out useless scenarios
-
-    # scn_spec = permuted_specs[scn_id]
-    scn_spec = specs_df.loc[scn_id]
-
-
-    tot_pop = setup.pop_node.sum()
-    scenario = {'name': f"{scn_spec['epicourse']}-r{int(scn_spec['vaccpermonthM'])}-t{int(scn_spec['newdoseperweek'])}-id{scn_id}",
-                'newdoseperweek': scn_spec['newdoseperweek'],
-                'rate_fomula': f"({scn_spec['vaccpermonthM'] * 1e6 / tot_pop / 30}*pop_nd)"
-                }
-
- 
-    return scenario
+        scenarios.append(scenarios_config)
+    
+    print(f"Total number of inpainting scenarios: {len(scenarios)}")
+    return scenarios

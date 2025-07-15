@@ -50,7 +50,7 @@ epidemiological structure.
 
 import pandas as pd
 import numpy as np
-from season_axis import SeasonAxis
+from ..utils.season_axis import SeasonAxis
 from tqdm import tqdm
 
 
