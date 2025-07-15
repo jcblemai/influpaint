@@ -1,3 +1,4 @@
+CLAUDE.md
 custom_datasets/*
 synthetic_dataset/model_output/
 *.out
