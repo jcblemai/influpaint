@@ -23,8 +23,18 @@
 # - samples are integers
 #
 #
-# Create first dataframes with
-# week
+# Create first dataframes with:
+# * frame identifier:
+#   * datasetH1
+#   * datasetH2
+#   * sample
+#   * fluseason
+# * Frame axis and value
+#   * location_code'
+#   * 'season_week'
+#   * 'value'
+# * available is also week_enddate
+#
 #
 
 # %%
@@ -175,8 +185,24 @@ fig, axes = idplots.plot_season_overlap_grid(csp_flusurv, season_setup, despine=
 #
 
 # %%
+
+# %%
+smp
+
+# %%
 importlib.reload(read_datasources)
-smh_traj = read_datasources.extract_FluSMH_trajectories(min_locations=45)
+smh_traj = read_datasources.extract_FluSMH_trajectories(min_locations=50)
+
+# remove the one with PSI-M2, as they numbered their samples differently each location and I don't want to deal with that
+# at the moment
+smh_traj = {k: v for k, v in smh_traj.items() if "PSI-M2" not in k}
+
+# most of them has 100 samples per scenario. Maybe let's pick 20 using random.choice to not degenerate the dataset too much
+for model, all_scn in smh_traj.items():
+    for scn, df in all_scn.items():
+        smp = np.random.choice(df['sample'].unique(), size=20, replace=False)
+        smh_traj[model][scn] = df[df['sample'].isin(smp)]
+
 
 # %%
 all_smh_traj = []
@@ -319,8 +345,16 @@ flepiR1_df["datasetH1"] = "flepiR1"
 flepiR1_df["datasetH2"] = "flepiR1"
 flepiR1_df = season_setup.add_season_columns(flepiR1_df, do_fluseason_year=True)
 
+# also sample 20*4 scn random sample
+smp = np.random.choice(flepiR1_df['sample'].unique(), size=80, replace=False)
+flepiR1_df = flepiR1_df[flepiR1_df['sample'].isin(smp)]
+
+
 # %% [markdown]
 # ## C. Generate dataset for fitting
+
+# %%
+sorted(fluview_df[fluview_df["fluseason"] == 2010]["location_code"].unique())
 
 # %%
 all_datasets = {"fluview": fluview_df, 
@@ -329,61 +363,17 @@ all_datasets = {"fluview": fluview_df,
                 "smh_traj": all_smh_traj}
 for source, df in all_datasets.items():
     print(f"Source: {source}, shape: {df.shape} > years: {len(df['fluseason'].unique())}, datasetH2: {len(df['datasetH2'].unique())}, sample: {len(df['sample'].unique())}")
-    print(sorted(df.columns))
+
+all_datasets_df = pd.concat(all_datasets.values(), ignore_index=True)
+print(f"All datasets combined shape: {all_datasets_df.shape}")
+print(sorted(all_datasets_df.columns))
 
 # %%
-df
+all_datasets_df
 
 # %%
-assert False, "This is a temporary assert to stop the notebook from running further. Remove it when you want to run the rest of the notebook."
-
-# %%
-# The goal is to build a dataset as an arraydf
-# (n_samples, n_features, n_dates, n_places)
-# the multiplier is used to create multiple datasets from the same data,
-# which increases the weight of a particular dataset
-dict_of_dfs = {
-    "nc_payload": {"df":nc_payload, "multiplier":1}, 
-    "fluview": {"df":fluview, "multiplier":30},
-    "flepiR1_df": {"df":flepiR1_df, "multiplier":1}
-    }
-
-import dataset_mixer
-
-final_frames, combined_df = dataset_mixer.build_frames(dict_of_dfs)
-seasons = sorted(combined_df['fluseason'].unique())
-location_codes = combined_df.location_code.unique()
-print(f"generated {len(final_frames)} frames from {len(seasons)} seasons and {len(location_codes)} locations in datasets {dict_of_dfs.keys()}")
-
-# %%
-for i, frame in enumerate(final_frames):
-    df = final_frames[i]
-    df["fluseason"] = i
-    final_frames[i] = df
-
-assert set(pd.concat(final_frames).fluseason.unique()) == set(range(len(final_frames)))
-# TODO: cette function assume que chaque frame commence à la semaine 1. Il faudrait la rendre plus robuste
-array_list = read_datasources.dataframe_to_arraylist(df=pd.concat(final_frames), season_setup=season_setup)
-
-# %%
-# save as an netcdf file
-array = np.array(array_list)
-
-flu_payload_array = xr.DataArray(array, 
-                coords={'sample': np.arange(array.shape[0]),
-                    'feature': np.arange(array.shape[1]),
-                    'season_week': np.arange(1, array.shape[2]+1),
-                    'place': season_setup.locations + [""]*(array.shape[3] - len(season_setup.locations))}, 
-                dims=["sample", "feature", "season_week", "place"])
-
-# ge today's date
-import datetime
-today = datetime.datetime.now().strftime("%Y-%m-%d")
-# create the folder if exists:
-Path("training_datasets").mkdir(parents=True, exist_ok=True)
-
-
-flu_payload_array.to_netcdf(f"training_datasets/NC_Flusight_{today}.nc")
+all_datasets_df['sample'] = all_datasets_df['sample'].astype(str)
+all_datasets_df.to_parquet("Flusight/flu-datasets/all_datasets.parquet", index=False)
 
 # %%
 assert False, "This is a temporary assert to stop the notebook from running further. Remove it when you want to run the rest of the notebook."
