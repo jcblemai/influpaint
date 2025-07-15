@@ -34,8 +34,9 @@ import tqdm
 from influpaint.utils import SeasonAxis
 from influpaint.datasets import build_frames
 from influpaint.utils import plotting as idplots
+from influpaint.utils import converters
 from influpaint.datasets import mixer as dataset_mixer
-import read_datasources
+from influpaint.datasets import read_datasources
 season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 
 # %%
@@ -53,8 +54,8 @@ for dH1 in all_datasets_df['datasetH1'].unique():
 # * 160 FlepiR1
 # * 1240 total synthetic
 # * 20 for the sum of all surveilalnce dataset
-# 
-# 
+#
+#
 
 # %%
 DATASET_GRIDS = {
@@ -84,58 +85,65 @@ DATASET_GRIDS = {
 
 
 # %%
-mix_cfg = DATASET_GRIDS["SURV_ONLY"]
-loader = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
 
 # %%
-a = loader[0]
-a[a["location_code"] == "22"]
+#mix_cfg = DATASET_GRIDS["SURV_ONLY"]
+#frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+
+
 
 # %%
-955	2016-10-08 00:00:00	22	0.0		2					fluview/fluview/2010/1[filled_same_location_year_2016_sample_1]
+mix_cfg = DATASET_GRIDS["MOD_ONLY"]
+frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+
+# %%
+for i, frame in enumerate(frame_list):
+    df = frame_list[i]
+    df["fluseason"] = i
+    frame_list[i] = df
+    assert df.season_week.max() == 53 and df.season_week.min() == 1, f"Frame {i} has invalid season_week range: {df.season_week.min()} to {df.season_week.max()}"
+    assert set(df["location_code"].unique()) == set(season_setup.locations), f"Frame {i} has invalid locations: {set(df['location_code'].unique())} vs {set(season_setup.locations)}"
+assert set(pd.concat(frame_list).fluseason.unique()) == set(range(len(frame_list)))
+
+all_frames_df = pd.concat(frame_list).reset_index(drop=True)
+array_list = converters.dataframe_to_arraylist(df=all_frames_df, season_setup=season_setup)
+
+# %%
+a = frame_list[880]
+a[a['location_code'] == '11'].sort_values(by='season_week')
+
+# %%
+all_frames_df.iloc[2379069:2379077]
+
+# %%
+all_frames_df[(all_frames_df['fluseason'] == 880) & (all_frames_df['location_code'] == '11')].sort_values(by='season_week')
+
+# %%
+
+# Check for duplicates in the index columns before pivoting
+dupes = all_frames_df[all_frames_df.duplicated(subset=["fluseason", "season_week", "location_code"], keep=False)]
+if not dupes.empty:
+    print("Duplicate entries found:")
+    print(dupes)
+else:
+    df_piv = all_frames_df.pivot(
+        columns="location_code",
+        values="value",
+        index=["fluseason", "season_week"],
+    )
 
 # %%
 a["origin"].unique()
 
 # %%
-mix_cfg = DATASET_GRIDS["MOD_ONLY"]
-loader = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
 
 # %%
 mix_cfg = DATASET_GRIDS["HYBRID_70S_30M"]
-loader = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
+frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
 
 # %%
-a = loader[0]
-a #a[a["location_code"] == "03"]
 
 # %%
-# The goal is to build a dataset as an arraydf
-# (n_samples, n_features, n_dates, n_places)
-# the multiplier is used to create multiple datasets from the same data,
-# which increases the weight of a particular dataset
-dict_of_dfs = {
-   # "nc_payload": {"df":nc_payload, "multiplier":1}, 
-    "fluview": {"df":fluview_df, "multiplier":30},
-    #"flepiR1_df": {"df":flepiR1_df, "multiplier":1}
-    }
-
-# dataset_mixer already imported above as: from influpaint.datasets import mixer as dataset_mixer
-
-final_frames, combined_df = dataset_mixer.build_frames(dict_of_dfs)
-seasons = sorted(combined_df['fluseason'].unique())
-location_codes = combined_df.location_code.unique()
-print(f"generated {len(final_frames)} frames from {len(seasons)} seasons and {len(location_codes)} locations in datasets {dict_of_dfs.keys()}")
-
-# %%
-for i, frame in enumerate(final_frames):
-    df = final_frames[i]
-    df["fluseason"] = i
-    final_frames[i] = df
-
-assert set(pd.concat(final_frames).fluseason.unique()) == set(range(len(final_frames)))
-# TODO: cette function assume que chaque frame commence à la semaine 1. Il faudrait la rendre plus robuste
-array_list = read_datasources.dataframe_to_arraylist(df=pd.concat(final_frames), season_setup=season_setup)
 
 # %%
 # save as an netcdf file

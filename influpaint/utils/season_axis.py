@@ -85,7 +85,7 @@ class SeasonAxis:
         remove_territories=False,
         remove_us=False,
     ):
-        location_filepath = "influpaint_locations.csv" if location_filepath is None else location_filepath
+        location_filepath = "influpaint/influpaint_locations.csv" if location_filepath is None else location_filepath
         
         influpaint_locations = pd.read_csv(
             location_filepath,

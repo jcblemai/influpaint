@@ -190,11 +190,6 @@ fig, axes = idplots.plot_season_overlap_grid(csp_flusurv, season_setup, despine=
 #
 
 # %%
-
-# %%
-smp
-
-# %%
 importlib.reload(read_datasources)
 smh_traj = read_datasources.extract_FluSMH_trajectories(min_locations=50)
 
@@ -357,9 +352,6 @@ flepiR1_df = flepiR1_df[flepiR1_df['sample'].isin(smp)]
 
 # %% [markdown]
 # ## C. Generate dataset for fitting
-
-# %%
-sorted(fluview_df[fluview_df["fluseason"] == 2010]["location_code"].unique())
 
 # %%
 all_datasets = {"fluview": fluview_df, 

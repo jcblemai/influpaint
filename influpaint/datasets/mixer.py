@@ -487,12 +487,11 @@ def _build_global_lookup_table(all_datasets_df: pd.DataFrame) -> dict:
 
 def _get_fill_data_from_global_lookup(frame: pd.DataFrame, location: str, 
                                      global_lookup: dict, actual_locations: set) -> tuple:
-    """Get fill data using pre-computed global lookup - super fast."""
+    """Get fill data using pre-computed global lookup with clear search hierarchy."""
+    
+    # If no global lookup or location not found anywhere, error
     if global_lookup is None or location not in global_lookup:
-        # Fallback to random
-        random_location = np.random.choice(list(actual_locations))
-        random_data = frame[frame['location_code'] == random_location].copy()
-        return random_data, f"random_from_{random_location}"
+        raise ValueError(f"Location {location} not found anywhere in the dataset. Cannot fill missing location.")
     
     # Get frame metadata
     current_h1 = frame['datasetH1'].iloc[0] if 'datasetH1' in frame.columns else None
@@ -501,39 +500,77 @@ def _get_fill_data_from_global_lookup(frame: pd.DataFrame, location: str,
     
     location_lookup = global_lookup[location]
     
-    # Strategy 1: Same H1, different year
-    if current_h1 in location_lookup:
-        h1_lookup = location_lookup[current_h1]
-        
-        # Find different years
-        for year, year_info in h1_lookup['by_year'].items():
-            if year != current_season:
-                data = year_info['data'].copy()
-                source = f"same_location_year_{year}_sample_{year_info['sample']}"
-                return data, source
-        
-        # Strategy 2: Same H1, different sample 
-        current_key = f"{current_season}_{current_sample}"
-        for sample_key, sample_info in h1_lookup['by_sample'].items():
-            if sample_key != current_key and sample_info['year'] == current_season:
-                data = sample_info['data'].copy()
-                source = f"same_location_sample_{sample_info['sample']}"
-                return data, source
+    # Search hierarchy (in order of preference):
+    search_strategies = [
+        # 1. Same H1, different year
+        lambda: _find_same_h1_different_year(location_lookup, current_h1, current_season),
+        # 2. Same H1, different sample 
+        lambda: _find_same_h1_different_sample(location_lookup, current_h1, current_season, current_sample),
+        # 3. Different H1
+        lambda: _find_different_h1(location_lookup, current_h1)
+    ]
     
-    # Strategy 3: Different H1
+    # Try each strategy in order
+    for strategy in search_strategies:
+        result = strategy()
+        if result is not None:
+            return result
+    
+    # If we get here, location exists but no valid data found
+    raise ValueError(f"Location {location} found in dataset but no valid fill data available.")
+
+
+def _find_same_h1_different_year(location_lookup: dict, current_h1: str, current_season: int) -> tuple:
+    """Find same location from same H1 dataset but different year."""
+    if current_h1 not in location_lookup:
+        return None
+    
+    h1_lookup = location_lookup[current_h1]
+    available_years = [year for year in h1_lookup['by_year'].keys() if year != current_season]
+    
+    if available_years:
+        random_year = np.random.choice(available_years)
+        year_info = h1_lookup['by_year'][random_year]
+        data = year_info['data'].copy()
+        source = f"same_location_year_{random_year}_sample_{year_info['sample']}"
+        return data, source
+    
+    return None
+
+
+def _find_same_h1_different_sample(location_lookup: dict, current_h1: str, 
+                                  current_season: int, current_sample: str) -> tuple:
+    """Find same location from same H1 dataset but different sample."""
+    if current_h1 not in location_lookup:
+        return None
+    
+    h1_lookup = location_lookup[current_h1]
+    current_key = f"{current_season}_{current_sample}"
+    available_samples = [key for key, info in h1_lookup['by_sample'].items() 
+                       if key != current_key and info['year'] == current_season]
+    
+    if available_samples:
+        random_sample_key = np.random.choice(available_samples)
+        sample_info = h1_lookup['by_sample'][random_sample_key]
+        data = sample_info['data'].copy()
+        source = f"same_location_sample_{sample_info['sample']}"
+        return data, source
+    
+    return None
+
+
+def _find_different_h1(location_lookup: dict, current_h1: str) -> tuple:
+    """Find same location from different H1 dataset."""
     for h1_name, h1_lookup in location_lookup.items():
         if h1_name != current_h1 and h1_lookup['by_year']:
-            # Pick first available year
-            year = next(iter(h1_lookup['by_year']))
-            year_info = h1_lookup['by_year'][year]
+            available_years = list(h1_lookup['by_year'].keys())
+            random_year = np.random.choice(available_years)
+            year_info = h1_lookup['by_year'][random_year]
             data = year_info['data'].copy()
-            source = f"same_location_{h1_name}_year_{year}"
+            source = f"same_location_{h1_name}_year_{random_year}"
             return data, source
     
-    # Fallback to random
-    random_location = np.random.choice(list(actual_locations))
-    random_data = frame[frame['location_code'] == random_location].copy()
-    return random_data, f"random_from_{random_location}"
+    return None
 
 
 def _build_fill_cache(frame: pd.DataFrame, missing_locations: set, all_datasets_df: pd.DataFrame) -> dict:
