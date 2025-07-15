@@ -12,10 +12,10 @@ from pathlib import Path
 import sys
 import pytest
 
-# Add parent directory to path
+# Add project root to path
 current_dir = Path(__file__).parent
-parent_dir = current_dir.parent
-sys.path.insert(0, str(parent_dir))
+project_root = current_dir.parent.parent.parent  # datasets/test -> datasets -> influpaint -> root
+sys.path.insert(0, str(project_root))
 
 from influpaint.datasets import mixer as dataset_mixer
 from influpaint.utils import SeasonAxis
