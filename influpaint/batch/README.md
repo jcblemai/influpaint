@@ -16,19 +16,19 @@ Parallel training and inpainting for InfluPaint experiments.
 
 ### Training
 ```bash
-python training.py -s 5 -e "experiment_name"
+python -m influpaint.batch.training -s 5 -e "experiment_name"
 sbatch train.run
 ```
 
 ### Inpainting
 ```bash
-python inpainting.py -s 5 -r "mlflow_run_id" -e "experiment_name" --forecast_date "2022-11-14" --config_name "celebahq_try1"
+python -m influpaint.batch.inpainting -s 5 -r "mlflow_run_id" -e "experiment_name" --forecast_date "2022-11-14" --config_name "celebahq_try1"
 sbatch inpaint.run
 ```
 
 ### Array Jobs
 ```bash
-python jobs.py -e "experiment_name" --scenarios "0-31" --start_date "2022-10-12" --end_date "2023-05-15"
+python -m influpaint.batch.jobs -e "experiment_name" --scenarios "0-31" --start_date "2022-10-12" --end_date "2023-05-15"
 sbatch inpaint_array_*.run
 ```
 

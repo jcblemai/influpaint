@@ -246,19 +246,19 @@ def model_library(image_size, channels, epoch, device, batch_size):
 
 def dataset_library(season_setup, channels):
     """Dataset configurations - easy to add new datasets"""
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    day = "2025-07-14"
     
     dataset_spec = {
         # Legacy datasets
         # "Fv": training_datasets.FluDataset.from_fluview(season_setup=season_setup, download=False),
-        "R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=season_setup, download=False),
-        "R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels),
+        #"R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=season_setup, download=False),
+        #"R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels),
         
         # New DATASET_GRIDS - just comment/uncomment to enable/disable
-        "SURV_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_SURV_ONLY_{today}.nc", channels=channels),
-        "HYBRID_70S_30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_70S_30M_{today}.nc", channels=channels),
-        "HYBRID_30S_70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_30S_70M_{today}.nc", channels=channels),
-        "MOD_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_MOD_ONLY_{today}.nc", channels=channels),
+        "SURV_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_SURV_ONLY_{day}.nc", channels=channels),
+        "HYBRID_70S_30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_70S_30M_{day}.nc", channels=channels),
+        "HYBRID_30S_70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_30S_70M_{day}.nc", channels=channels),
+        "MOD_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_MOD_ONLY_{day}.nc", channels=channels),
     }
     return dataset_spec
 
@@ -266,7 +266,7 @@ def dataset_library(season_setup, channels):
 def transform_library(scaling_per_channel):
     """Transform configurations - easy to modify parameters"""
     from torchvision import transforms
-    import epitransforms
+    from influpaint.datasets import transforms as epitransforms
 
     print(scaling_per_channel)
 
@@ -319,7 +319,7 @@ def transform_library(scaling_per_channel):
 
 # Available options - easy to modify by commenting/uncommenting
 AVAILABLE_MODELS = ["MyUnet200", "MyUnet500"]
-AVAILABLE_DATASETS = ["R1Fv", "R1", "SURV_ONLY", "HYBRID_70S_30M", "HYBRID_30S_70M", "MOD_ONLY"]
+AVAILABLE_DATASETS = ["SURV_ONLY", "HYBRID_70S_30M", "HYBRID_30S_70M", "MOD_ONLY"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
 AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
