@@ -4,19 +4,43 @@
 #SBATCH --qos gpu_access
 #SBATCH -p a100-gpu,l40-gpu
 #SBATCH --mem=32G
-#SBATCH -t 00-16:00:00
+#SBATCH -t 00-04:00:00
 #SBATCH --array=0-31
 #SBATCH --gres=gpu:1
 
-# 1 node (N) 1 task (n) to the general partition  for 7days, with this task needing 6 cpus
+# NOTE: This is a template for manual inpainting jobs.
+# For parallel inpainting across dates/configs, use generate_inpaint_jobs.py instead.
+
 module purge
-#./$CONDA_ROOT/etc/profile.d/conda.sh
-#module add anaconda
-#conda init
-#conda activate pymc4_env > test.out
 
-/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u main.py --spec_id ${SLURM_ARRAY_TASK_ID} --inpaint True > out_inpaint_${SLURM_ARRAY_TASK_ID}.out 2>&1
+# *** CHANGE THESE FOR YOUR EXPERIMENT ***
+EXPERIMENT_NAME="paper-2025-06"
+FORECAST_DATE="2022-11-14"  # Single date per job
+CONFIG_NAME="celebahq_try1"  # Single config per job
 
+TRAINING_EXP="${EXPERIMENT_NAME}_training"
+INPAINT_EXP="${EXPERIMENT_NAME}_inpainting"
 
-# #SBATCH -p jlessler
-# #SBATCH --mem=64G
+echo "Inpainting scenario ${SLURM_ARRAY_TASK_ID}"
+echo "Date: ${FORECAST_DATE}, Config: ${CONFIG_NAME}"
+
+# Get the MLflow run ID for this scenario
+RUN_ID=$(/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python influpaint/batch/mlflow_utils.py \
+    -e "${TRAINING_EXP}" \
+    -s ${SLURM_ARRAY_TASK_ID})
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: No trained model found for scenario ${SLURM_ARRAY_TASK_ID} in ${TRAINING_EXP}"
+    exit 1
+fi
+
+echo "Found trained model: ${RUN_ID}"
+
+# Run atomic inpainting
+/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/inpainting.py \
+    -s ${SLURM_ARRAY_TASK_ID} \
+    -r "${RUN_ID}" \
+    -e "${INPAINT_EXP}" \
+    --forecast_date "${FORECAST_DATE}" \
+    --config_name "${CONFIG_NAME}" \
+    > out_inpaint_s${SLURM_ARRAY_TASK_ID}_${FORECAST_DATE}_${CONFIG_NAME}.out 2>&1

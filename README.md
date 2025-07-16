@@ -3,8 +3,7 @@
 * **affiliation** The University of North Carolina at Chapel Hill
 
 ## Code organisation
-
-
+- season_setup.py This module create axes dataframe to prepare arrayification
 
 
 
