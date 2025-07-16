@@ -29,7 +29,7 @@ season_setup = None  # This needs to be set based on your specific setup
 @click.option("-e", "--experiment_name", "experiment_name", envvar="experiment_name", type=str, required=True,
               help="MLflow experiment name")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, 
-              default='/work/users/c/h/chadi/influpaint_res/', show_default=True, 
+              default='/users/c/h/chadi/influpaint_res/', show_default=True, 
               help="Where to write model checkpoints")
 @click.option("--image_size", default=64, type=int, help="Image size")
 @click.option("--channels", default=1, type=int, help="Number of channels")

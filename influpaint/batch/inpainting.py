@@ -38,7 +38,7 @@ season_setup = None  # This needs to be set based on your specific setup
 @click.option("-e", "--experiment_name", "experiment_name", envvar="experiment_name", type=str, required=True,
               help="MLflow experiment name")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, 
-              default='/work/users/c/h/chadi/influpaint_res/', show_default=True,
+              default='/users/c/h/chadi/influpaint_res/', show_default=True,
               help="Where to write forecast results")
 @click.option("--forecast_date", required=True, type=str, help="Single forecast date (YYYY-MM-DD)")
 @click.option("--config_name", required=True, type=str, help="CoPaint config name (e.g. 'celebahq_try1')")

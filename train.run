@@ -3,8 +3,8 @@
 #SBATCH -n 1
 #SBATCH -p jlessler
 #SBATCH --mem=64G
-#SBATCH -t 00-01:00:00
-#SBATCH --array=8-11
+#SBATCH -t 00-03:00:00
+#SBATCH --array=0-11
 #SBATCH --gres=gpu:1
 
 module purge
@@ -17,6 +17,6 @@ echo "Training scenario ${SLURM_ARRAY_TASK_ID} for experiment ${EXPERIMENT_NAME}
 /nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/training.py \
     -s ${SLURM_ARRAY_TASK_ID} \
     -e "${EXPERIMENT_NAME}_training" \
-    > out_train_${SLURM_ARRAY_TASK_ID}.out 2>&1
+    > out_train_${SLURM_ARRAY_TASK_ID}_${EXPERIMENT_NAME}.out 2>&1
 
 
