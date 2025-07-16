@@ -15,7 +15,7 @@ EXPERIMENT_NAME="paper-2025-06"
 
 echo "Training scenario ${SLURM_ARRAY_TASK_ID} for experiment ${EXPERIMENT_NAME}_training"
 
-/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/training.py \
+/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u -m influpaint.batch.training \
     -s ${SLURM_ARRAY_TASK_ID} \
     -e "${EXPERIMENT_NAME}_training" \
     > out_train_${SLURM_ARRAY_TASK_ID}_${EXPERIMENT_NAME}.out 2>&1
