@@ -29,6 +29,7 @@ import epiweeks
 import warnings
 import importlib
 import tqdm
+import datetime
 
 # InfluPaint modular imports
 from influpaint.utils import SeasonAxis
@@ -38,6 +39,36 @@ from influpaint.utils import converters
 from influpaint.datasets import mixer as dataset_mixer
 from influpaint.datasets import read_datasources
 season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
+
+today = datetime.datetime.now().strftime("%Y-%m-%d")
+# create the folder if exists:
+Path("training_datasets").mkdir(parents=True, exist_ok=True)
+
+def build_dataset_from_framelist(frame_list):
+    main_origins = []
+    for i, frame in enumerate(frame_list):
+        df = frame_list[i]
+        df["fluseason"] = i
+        frame_list[i] = df
+        assert df.season_week.max() == 53 and df.season_week.min() == 1, f"Frame {i} has invalid season_week range: {df.season_week.min()} to {df.season_week.max()}"
+        assert set(df["location_code"].unique()) == set(season_setup.locations), f"Frame {i} has invalid locations: {set(df['location_code'].unique())} vs {set(season_setup.locations)}"
+        # Add the most occurring origin for this frame
+        main_origins.append(df["origin"].mode()[0] if not df["origin"].mode().empty else None)
+    assert set(pd.concat(frame_list).fluseason.unique()) == set(range(len(frame_list)))
+
+    all_frames_df = pd.concat(frame_list).reset_index(drop=True)
+    array_list = converters.dataframe_to_arraylist(df=all_frames_df, season_setup=season_setup)
+
+    array = np.array(array_list)
+
+    flu_payload_array = xr.DataArray(array, 
+                    coords={'sample': np.arange(array.shape[0]),
+                        'feature': np.arange(array.shape[1]),
+                        'season_week': np.arange(1, array.shape[2]+1),
+                        'place': season_setup.locations + [""]*(array.shape[3] - len(season_setup.locations))}, 
+                    dims=["sample", "feature", "season_week", "place"])
+    return flu_payload_array, main_origins
+
 
 # %%
 all_datasets_df = pd.read_parquet("Flusight/flu-datasets/all_datasets.parquet")
@@ -84,38 +115,46 @@ DATASET_GRIDS = {
 }
 
 
+    # %%
+    frame_list = dataset_mixer.build_frames(all_datasets_df, {
+        "fluview":     {"multiplier": 1},
+        "flusurv": {"multiplier": 1}
+    }, season_axis=season_setup, fill_missing_locations="random")
+
+
+# %%
+flu_payload_array
+
+# %%
+main_origins
+
+# %%
+all_frames_df = pd.concat(frame_list)
+flu_payload_array, main_origins = build_dataset_from_framelist(frame_list)
+from importlib import reload
+import influpaint.utils.plotting as idplots
+reload(idplots)
+
+
+idx = 5  # Example index for plotting
+print(f"Plotting dataset main origins: {main_origins[idx]}")
+  # Plot all seasons as light lines
+fig, ax = idplots.plot_us_grid(
+      data=flu_payload_array,
+      season_axis=season_setup,
+      sample_idx=idx,
+      multi_line=True,
+      sharey=False,
+
+  )
+
+# %%
+
 # %%
 for ds_name, mix_cfg in DATASET_GRIDS.items():
     frame_list = dataset_mixer.build_frames(all_datasets_df, mix_cfg, season_axis=season_setup, fill_missing_locations="random")
-
-    for i, frame in enumerate(frame_list):
-        df = frame_list[i]
-        df["fluseason"] = i
-        frame_list[i] = df
-        assert df.season_week.max() == 53 and df.season_week.min() == 1, f"Frame {i} has invalid season_week range: {df.season_week.min()} to {df.season_week.max()}"
-        assert set(df["location_code"].unique()) == set(season_setup.locations), f"Frame {i} has invalid locations: {set(df['location_code'].unique())} vs {set(season_setup.locations)}"
-    assert set(pd.concat(frame_list).fluseason.unique()) == set(range(len(frame_list)))
-
-    all_frames_df = pd.concat(frame_list).reset_index(drop=True)
-    array_list = converters.dataframe_to_arraylist(df=all_frames_df, season_setup=season_setup)
-    
-    # save as an netcdf file
-    array = np.array(array_list)
-
-    flu_payload_array = xr.DataArray(array, 
-                    coords={'sample': np.arange(array.shape[0]),
-                        'feature': np.arange(array.shape[1]),
-                        'season_week': np.arange(1, array.shape[2]+1),
-                        'place': season_setup.locations + [""]*(array.shape[3] - len(season_setup.locations))}, 
-                    dims=["sample", "feature", "season_week", "place"])
-
-    # ge today's date
-    import datetime
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    # create the folder if exists:
-    Path("training_datasets").mkdir(parents=True, exist_ok=True)
+    flu_payload_array = build_dataset_from_framelist(frame_list)
     flu_payload_array.to_netcdf(f"training_datasets/TS_{ds_name}_{today}.nc")
-
 
 # %%
 all_frames_df.groupby(["origin"]).count()
@@ -133,20 +172,27 @@ from influpaint.datasets import loaders
 
 # %%
 flu_dyn = xr.open_dataarray(f"training_datasets/TS_{ds_name}_{today}.nc")
-
-# %%
 flu_dyn_arr = np.array(flu_dyn)
-
-# %%
 dl = loaders.FluDataset(flu_dyn=flu_dyn_arr)
 
 # %%
-fig, ax = plt.subplot()
-ar = dl.get_sample_transformed_enriched(80)
-idplots.plot_to_ax(ar, multi = True)
 
 # %%
-for i in range(len(all_frames_df["origin"].unique())):
-    print(i, all_frames_df["origin"].unique()[i])
+
+# %%
+fig, ax = plt.subplots()
+for i in range(80, 1240):
+    ar = dl.get_sample_transformed_enriched(i)
+    idplots.plot_to_ax(ar, multi = True, ax=ax)
+
+ax.set_ylim(0,1)
+
+# %%
+fig, ax = plt.subplots()
+for i in range(0, 80):
+    ar = dl.get_sample_transformed_enriched(i)
+    idplots.plot_to_ax(ar, multi = True, ax=ax)
+
+ax.set_ylim(0,1)
 
 # %%
