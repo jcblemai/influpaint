@@ -212,7 +212,7 @@ def copaint_config_library(timesteps):
 def model_library(image_size, channels, epoch, device, batch_size):
     """Model configurations - easy to add new models"""
     unet_spec = {
-        "MyUnet200": ddpm.DDPM(
+        "U200": ddpm.DDPM(
             model=nn_blocks.Unet(
                 dim=image_size,
                 channels=channels,
@@ -226,7 +226,7 @@ def model_library(image_size, channels, epoch, device, batch_size):
             timesteps=200,
             device=device
         ),
-        "MyUnet500": ddpm.DDPM(
+        "U500": ddpm.DDPM(
             model=nn_blocks.Unet(
                 dim=image_size,
                 channels=channels,
@@ -318,7 +318,7 @@ def transform_library(scaling_per_channel):
 
 
 # Available options - easy to modify by commenting/uncommenting
-AVAILABLE_MODELS = ["MyUnet200", "MyUnet500"]
+AVAILABLE_MODELS = ["U200", "U500"]
 AVAILABLE_DATASETS = ["SURV_ONLY", "HYBRID_70S_30M", "HYBRID_30S_70M", "MOD_ONLY"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]

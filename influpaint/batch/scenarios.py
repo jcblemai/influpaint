@@ -21,10 +21,6 @@ class TrainingScenario:
     @property
     def scenario_string(self) -> str:
         return f"i{self.scenario_id}::model_{self.unet_name}::dataset_{self.dataset_name}::trans_{self.transform_name}::enrich_{self.enrich_name}"
-    
-    @property
-    def timesteps(self) -> int:
-        return 200 if self.unet_name == "MyUnet200" else 500
 
 
 @dataclass(frozen=True)
