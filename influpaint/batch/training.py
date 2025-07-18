@@ -34,7 +34,7 @@ season_setup = None  # This needs to be set based on your specific setup
 @click.option("--image_size", default=64, type=int, help="Image size")
 @click.option("--channels", default=1, type=int, help="Number of channels")
 @click.option("--batch_size", default=512, type=int, help="Batch size")
-@click.option("--epochs", default=800, type=int, help="Number of epochs")
+@click.option("--epochs", default=3000, type=int, help="Number of epochs")
 def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epochs):
     """Train a diffusion model for a specific scenario"""
     
