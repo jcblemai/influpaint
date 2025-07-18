@@ -174,7 +174,7 @@ def create_scenario_objects(scenario_spec: TrainingScenario, season_setup, image
     unet_spec = unet_library(image_size, channels)
     unet = unet_spec[scenario_spec.unet_name]
     ddpm_spec = ddpm_library(image_size, channels, epochs, device, batch_size, unet=unet)
-    ddpm = ddpm_spec[scenario_spec.unet_name]
+    ddpm = ddpm_spec[scenario_spec.ddpm_name]
     
     dataset = get_dataset(scenario_spec.dataset_name, season_setup, channels)
     
