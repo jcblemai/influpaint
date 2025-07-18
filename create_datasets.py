@@ -69,6 +69,7 @@ def build_dataset_from_framelist(frame_list):
                     dims=["sample", "feature", "season_week", "place"])
     return flu_payload_array, main_origins
 
+
 # %%
 all_datasets_df = pd.read_parquet("Flusight/flu-datasets/all_datasets.parquet")
 for dH1 in all_datasets_df['datasetH1'].unique():
@@ -78,13 +79,14 @@ for dH1 in all_datasets_df['datasetH1'].unique():
         h2df = h1df[h1df['datasetH2'] == dH2]
         print(f" -  datasetH2: {dH2}, shape: {h2df.shape}, years: {len(h2df['fluseason'].unique())}, samples: {len(h2df['sample'].unique())} ===> n_frames={len(h2df['fluseason'].unique())* len(h2df['sample'].unique())}")
 
+
 # %% [markdown]
 # * 1080 Frame SMH
 # * 160 FlepiR1
 # * 1240 total synthetic
 # * 20 for the sum of all surveilalnce dataset
-# 
-# 
+#
+#
 
 # %%
 all_datasets_df = pd.read_parquet("Flusight/flu-datasets/all_datasets.parquet")
@@ -117,7 +119,6 @@ scaling_distribution = season_peaks[season_peaks['datasetH1'] == 'SMH_R4-R5'].va
 
 # %%
 
-
 # %%
 DATASET_GRIDS = {
     "SURV_ONLY": {
@@ -143,6 +144,7 @@ DATASET_GRIDS = {
         "SMH_R4-R5": {"multiplier": 1}
     },
 }
+
 
 # %%
 frame_list = dataset_mixer.build_frames(all_datasets_df, {
@@ -206,12 +208,11 @@ flu_payload_array
 
 # %%
 to_read = "HYBRID_30S_70M"
-ds = xr.open_dataset(f"training_datasets/TS_{to_read}_{today}.nc")
-ds = ds[list(ds.data_vars)[0]]
+ds = xr.open_dataarray(f"training_datasets/TS_{to_read}_{today}.nc")
+#ds = ds[list(ds.data_vars)[0]]
 all_origin = ds.attrs.get("main_origins", None)
 
 # %%
-ds
 
 # %%
 # Extract top-level source (e.g., 'fluview' from 'fluview/fluview/...')
@@ -239,5 +240,3 @@ fig, ax = idplots.plot_us_grid(
     multi_line=True,
     sharey=False,
 )
-
-
