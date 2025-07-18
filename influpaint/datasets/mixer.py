@@ -8,34 +8,50 @@ for diffusion models. Addresses common challenges in epidemic modeling:
 - **Temporal Completeness**: Ensures all frames have complete weekly coverage (1-53)
 - **Spatial Completeness**: Fills missing location-season combinations
 - **Gap Handling**: Fills missing weeks and locations
+- **Peak Scaling**: Scales epidemic curves to target peak intensities
 
 Key Components:
 --------------
 1. **Multiplier Calculation**: Compute dataset weights for target proportions
 2. **Frame Construction**: Build complete epidemic frames for training
-3. **Gap Filling**: Handle missing data
+3. **Gap Filling**: Handle missing data intelligently
+4. **Peak Scaling**: Scale frames to realistic epidemic intensities
 
 Typical Usage:
 --------------
 # Step 1: Combine datasets into hierarchical structure
 all_datasets_df = pd.concat([fluview_df, nc_df, smh_traj_df])
 
-# Step 2: Configure dataset inclusion and weighting
+# Step 2: Configure dataset inclusion, weighting, and scaling
 config = { 
-    "fluview": {"proportion": 0.7, "total": 1000},    # 70% of final dataset
-    "smh_traj": {"proportion": 0.3, "total": 1000}   # 30% of final dataset
+    "fluview": {"proportion": 0.7, "total": 1000, "to_scale": True},     # 70% + scaling
+    "smh_traj": {"proportion": 0.3, "total": 1000, "to_scale": False}    # 30% + no scaling
 }
 
-# Step 3: Build complete frames with configurable location handling
+# Step 3: Define scaling distribution for peak intensities
+scaling_dist = np.array([1000, 2000, 3000, 5000, 8000, 12000])  # US peak values
+
+# Step 4: Build complete frames with configurable location handling and scaling
 frames = build_frames(all_datasets_df, config, season_axis, 
-                     fill_missing_locations="zeros")
+                     fill_missing_locations="zeros",
+                     scaling_distribution=scaling_dist)
 
 # Alternative: Use explicit multipliers instead of proportions
 config = {
-    "fluview": {"multiplier": 2},     # Include twice
-    "smh_traj": {"multiplier": 1}     # Include once
+    "fluview": {"multiplier": 2, "to_scale": True},      # Include twice + scaling
+    "smh_traj": {"multiplier": 1, "to_scale": False}     # Include once + no scaling
 }
-frames = build_frames(all_datasets_df, config, season_axis)
+frames = build_frames(all_datasets_df, config, season_axis, 
+                     scaling_distribution=scaling_dist)
+
+Peak Scaling:
+-------------
+When "to_scale": True is specified for a dataset:
+- Each frame gets independently scaled to a random peak from scaling_distribution
+- Scaling preserves epidemic curve shape while adjusting intensity
+- US peak = max(weekly_sum_across_all_locations) is used as scaling reference
+- Origin tracking includes scaling target: "[scaled_to_X.X]"
+- Provides realistic intensity variation for training data augmentation
 
 Output Format:
 --------------
@@ -43,9 +59,11 @@ Each frame is a complete epidemic season with:
 - All weeks (1-53) represented
 - All locations covered  
 - Consistent data structure for array conversion
+- Optional peak scaling applied
+- Full provenance tracking in 'origin' column
 
 Enables training on heterogeneous surveillance data while maintaining 
-epidemiological structure.
+epidemiological structure and realistic intensity distributions.
 """
 
 import pandas as pd
@@ -83,7 +101,7 @@ def _validate_config_consistency(config: dict) -> tuple[bool, bool]:
     return has_proportions, has_multipliers
 
 def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: SeasonAxis, 
-                 fill_missing_locations: str = "error") -> list:
+                 fill_missing_locations: str = "error", scaling_distribution: np.ndarray = None) -> list:
     """
     Build complete epidemic frames from hierarchical dataset structure.
     
@@ -101,6 +119,7 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
         config (dict): Configuration for dataset inclusion and weighting:
             - Keys: H1 dataset names (must exist in datasetH1 column)
             - Values: Either {"multiplier": int} or {"proportion": float, "total": int}
+            - Optional: {"to_scale": bool} to enable frame scaling
             
         season_axis (SeasonAxis): Season axis object providing location definitions
         
@@ -110,6 +129,9 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
             - "random": Fill missing locations with random other season data
             - "skip": Skip frames with missing locations
             
+        scaling_distribution (np.ndarray, optional): Array of values to draw from for scaling.
+            Required if any dataset in config has "to_scale": True
+            
     Returns:
         list: Complete epidemic frames, where each frame contains:
             - All weeks (1-53) for all expected locations (based on season_axis)
@@ -118,11 +140,12 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
             
     Example:
         config = {
-            "fluview": {"multiplier": 1},
-            "smh_traj": {"proportion": 0.7, "total": 1000}
+            "fluview": {"multiplier": 1, "to_scale": True},
+            "smh_traj": {"proportion": 0.7, "total": 1000, "to_scale": False}
         }
+        scaling_dist = np.array([1000, 2000, 3000, 5000, 8000])  # Peak values to scale to
         frames = build_frames(all_datasets_df, config, season_axis, 
-                             fill_missing_locations="zeros")
+                             fill_missing_locations="zeros", scaling_distribution=scaling_dist)
         
     Notes:
         - If H1 dataset is included, ALL H2s and seasons within it are included
@@ -147,6 +170,13 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
     if fill_missing_locations not in valid_strategies:
         raise ValueError(f"fill_missing_locations must be one of: {valid_strategies}")
     
+    # Validate scaling parameters
+    needs_scaling = any(cfg.get("to_scale", False) for cfg in config.values())
+    if needs_scaling and scaling_distribution is None:
+        raise ValueError("scaling_distribution must be provided when any dataset has to_scale=True")
+    if scaling_distribution is not None and len(scaling_distribution) == 0:
+        raise ValueError("scaling_distribution cannot be empty")
+    
     # Calculate multipliers for each H1 dataset
     h1_multipliers = _calculate_h1_multipliers(all_datasets_df, config)
     
@@ -162,9 +192,14 @@ def build_frames(all_datasets_df: pd.DataFrame, config: dict, season_axis: Seaso
     
     print("Building frames...")
     for h1_name, multiplier in h1_multipliers.items():
-        print(f"Processing {h1_name} (multiplier={multiplier})...")
+        h1_config = config[h1_name]
+        should_scale = h1_config.get("to_scale", False)
+        scale_info = " with scaling" if should_scale else ""
+        print(f"Processing {h1_name} (multiplier={multiplier}{scale_info})...")
         h1_data = all_datasets_df[all_datasets_df['datasetH1'] == h1_name].copy()
-        h1_frames = _build_h1_frames(h1_data, h1_name, multiplier, season_axis, fill_missing_locations, all_datasets_df, global_lookup)
+        
+        h1_frames = _build_h1_frames(h1_data, h1_name, multiplier, season_axis, fill_missing_locations, 
+                                   all_datasets_df, global_lookup, should_scale, scaling_distribution)
         all_frames.extend(h1_frames)
         
         # Build summary for this H1 dataset
@@ -260,7 +295,8 @@ def _calculate_explicit_multipliers(config: dict) -> dict:
 
 def _build_h1_frames(h1_data: pd.DataFrame, h1_name: str, multiplier: int, 
                     season_axis: SeasonAxis, fill_missing_locations: str, 
-                    all_datasets_df: pd.DataFrame = None, global_lookup: dict = None) -> list:
+                    all_datasets_df: pd.DataFrame = None, global_lookup: dict = None,
+                    should_scale: bool = False, scaling_distribution: np.ndarray = None) -> list:
     """Build frames for a single H1 dataset with replication."""
     frames = []
     
@@ -294,6 +330,10 @@ def _build_h1_frames(h1_data: pd.DataFrame, h1_name: str, multiplier: int,
                 if frame is None:
                     pbar.update(1)
                     continue
+                
+                # Apply scaling if required for this H1 dataset
+                if should_scale and scaling_distribution is not None:
+                    frame = _apply_frame_scaling(frame, scaling_distribution)
                     
                 frames.append(frame)
                 pbar.update(1)
@@ -694,4 +734,37 @@ def _pad_single_location(frame: pd.DataFrame, location: str) -> pd.DataFrame:
         frame = pd.concat([frame, missing_df], ignore_index=True)
 
     return frame.sort_values("season_week").reset_index(drop=True)
+
+
+def _apply_frame_scaling(frame: pd.DataFrame, scaling_distribution: np.ndarray) -> pd.DataFrame:
+    """
+    Apply scaling to a frame based on US peak sum scaling distribution.
+    
+    Args:
+        frame (pd.DataFrame): Complete frame with all locations and weeks
+        scaling_distribution (np.ndarray): Array of peak values to scale to
+        
+    Returns:
+        pd.DataFrame: Scaled frame with updated origin tracking
+    """
+    # Calculate current US peak (maximum weekly sum across all locations)
+    us_weekly_sums = frame.groupby('season_week')['value'].sum()
+    current_max = us_weekly_sums.max()
+    
+    # Draw target peak from scaling distribution
+    target_max = np.random.choice(scaling_distribution)
+    
+    # Calculate scaling factor (handle zero peak case)
+    scaling_factor = target_max / current_max if current_max > 0 else 1.0
+    
+    # Apply scaling to all values in the frame
+    frame = frame.copy()
+    frame['value'] *= scaling_factor
+    
+    # Update origin to track scaling
+    if 'origin' in frame.columns:
+        original_origin = frame['origin'].iloc[0]
+        frame['origin'] = f"{original_origin}[scaled_to_{target_max:.1f}]"
+    
+    return frame
 
