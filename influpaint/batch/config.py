@@ -22,13 +22,21 @@ from guided_diffusion import unet
 from utils import config
 
 # Available options
-AVAILABLE_DDPMS = ["U200", "U500"]
-AVAILABLE_UNETS = ["Rx124", "Cx124", "Rx1224", "Cx1224", "Rx12448"] #  "Cx12448", Cx124
+AVAILABLE_DDPMS = ["U200l", "U200c", "U500l", "U500c", "U800c"] 
+AVAILABLE_UNETS = ["Rx124", "Rx1224", "Cx1224", "Rx12448"] #  "Cx12448", Cx124
 AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt", "LinsZs", "LogZs"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
 AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
 
+# Making a baseline to prune the search space
+baseline = {
+    "ddpm": "U500c",
+    "unet": "Rx124",
+    "dataset": "70S30M",
+    "transform": "Sqrt",
+    "enrichment": "No"
+}
 
 def unet_library(image_size, channels):
     unet_spec = { "Rx124":
