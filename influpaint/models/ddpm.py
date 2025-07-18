@@ -26,7 +26,7 @@ from ..utils import helpers as myutils
 
 
 class DDPM:
-    def __init__(self, model, image_size=64, channels=1, batch_size=512, epochs=500,  timesteps=200, loss_type="huber", device=None) -> None:
+    def __init__(self, model, image_size=64, channels=1, batch_size=512, epochs=500,  timesteps=200, beta_schedule="linear", loss_type="huber", device=None) -> None:
         self.model = model
         self.image_size = image_size
         self.channels = channels
@@ -42,10 +42,16 @@ class DDPM:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # define beta schedule
-        self.betas = linear_beta_schedule(timesteps=self.timesteps)
-        # self.betas = quadratic_beta_schedule(self.timesteps=self.timesteps)
-        # self.betas = sigmoid_beta_schedule(self.timesteps=self.timesteps)
-
+        if beta_schedule == "linear":
+            self.betas = linear_beta_schedule(timesteps=self.timesteps)
+        elif beta_schedule == "cosine":
+            self.betas = cosine_beta_schedule(timesteps=self.timesteps)
+        elif beta_schedule == "quadratic":
+            self.betas = quadratic_beta_schedule(timesteps=self.timesteps)
+        elif beta_schedule == "sigmoid":
+            self.betas = sigmoid_beta_schedule(timesteps=self.timesteps)
+        else:
+            raise NotImplementedError(f"Beta schedule {beta_schedule} not implemented")
         # define alphas
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, axis=0)
