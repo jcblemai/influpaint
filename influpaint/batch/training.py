@@ -114,6 +114,8 @@ def run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size,
     # Generate and log sample images
     print(">>> Generating samples...")
     samples = ddpm.sample()
+
+    log_samples_as_artifacts(samples, dataset, scenario_spec.scenario_string)
     
     # Create and log sample plot
     fig, axes = plot_sample(samples, dataset, idplots)
@@ -196,6 +198,62 @@ def log_loss_plots_to_mlflow(losses):
     # Log figure directly to MLflow
     mlflow.log_figure(fig, "training_loss_curves.png")
     plt.close()
+
+
+def log_samples_as_artifacts(samples, dataset, scenario_string):
+    """Log generated samples as artifacts in multiple formats"""
+    import numpy as np
+    import tempfile
+    import os
+    
+    # Create temporary directory for artifacts
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # 1. Log raw samples as numpy array
+        raw_samples_path = os.path.join(temp_dir, "raw_samples.npy")
+        np.save(raw_samples_path, samples[-1].cpu().numpy())
+        mlflow.log_artifact(raw_samples_path, "samples")
+        
+        # 2. Log inverse-transformed samples (original scale) 
+        inv_samples_path = os.path.join(temp_dir, "inverse_transformed_samples.npy")
+        inv_samples = []
+        for i in range(min(samples[-1].shape[0], 100)):  # Log first 100 samples
+            inv_sample = dataset.apply_transform_inv(samples[-1][i])
+            inv_samples.append(inv_sample.cpu().numpy())
+        np.save(inv_samples_path, np.array(inv_samples))
+        mlflow.log_artifact(inv_samples_path, "samples")
+        
+        # 3. Log sample metadata
+        metadata_path = os.path.join(temp_dir, "sample_metadata.txt")
+        with open(metadata_path, 'w') as f:
+            f.write(f"Scenario: {scenario_string}\n")
+            f.write(f"Number of samples: {samples[-1].shape[0]}\n")
+            f.write(f"Sample shape: {samples[-1].shape}\n")
+            f.write(f"Sample dtype: {samples[-1].dtype}\n")
+            f.write(f"Sample device: {samples[-1].device}\n")
+            f.write(f"Sample min: {samples[-1].min().item():.6f}\n")
+            f.write(f"Sample max: {samples[-1].max().item():.6f}\n")
+            f.write(f"Sample mean: {samples[-1].mean().item():.6f}\n")
+            f.write(f"Sample std: {samples[-1].std().item():.6f}\n")
+            f.write(f"Inverse transformed samples shape: {np.array(inv_samples).shape}\n")
+            f.write(f"Inverse transformed min: {np.array(inv_samples).min():.6f}\n")
+            f.write(f"Inverse transformed max: {np.array(inv_samples).max():.6f}\n")
+            f.write(f"Inverse transformed mean: {np.array(inv_samples).mean():.6f}\n")
+        mlflow.log_artifact(metadata_path, "samples")
+        
+        # 4. Log sample statistics as metrics
+        mlflow.log_metrics({
+            "sample_count": samples[-1].shape[0],
+            "sample_min": samples[-1].min().item(),
+            "sample_max": samples[-1].max().item(),
+            "sample_mean": samples[-1].mean().item(),
+            "sample_std": samples[-1].std().item(),
+            "inv_sample_min": np.array(inv_samples).min(),
+            "inv_sample_max": np.array(inv_samples).max(),
+            "inv_sample_mean": np.array(inv_samples).mean(),
+            "inv_sample_std": np.array(inv_samples).std()
+        })
+        
+        print(f">>> Logged {len(inv_samples)} samples as artifacts")
 
 
 if __name__ == '__main__':
