@@ -97,9 +97,8 @@ def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size,
     # Log training start
     mlflow.log_metric("training_started", 1)
     
-    # Training
     print(">>> Starting training...")
-    unet.train(dataloader=dataloader)
+    losses = unet.train(dataloader, mlflow_logging=True)
     
     # Save model checkpoint
     checkpoint_path = f"{model_folder}/{model_id}::{epochs}.pth"
@@ -110,9 +109,32 @@ def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size,
     mlflow.pytorch.log_model(unet.model, "model")
     mlflow.log_artifact(checkpoint_path, "checkpoints")
     
-    # Generate and save sample images
+    # Generate and log sample images
     print(">>> Generating samples...")
     samples = unet.sample()
+    
+    # Create and log sample plot
+    fig, axes = plot_sample(samples, dataset, idplots)
+    mlflow.log_figure(fig, "generated_samples.png")
+    
+    # Log loss plots to MLflow
+    log_loss_plots_to_mlflow(losses)
+    
+    # Log training completion metrics
+    mlflow.log_metrics({
+        "training_completed": 1,
+        "final_epoch": epochs,
+        "samples_generated": samples[-1].shape[0],
+        "final_loss": losses[-1] if losses else 0,
+        "avg_loss_last_100": sum(losses[-100:]) / len(losses[-100:]) if len(losses) >= 100 else sum(losses) / len(losses)
+    })
+    
+    print(f">>> Training completed for {model_id}")
+
+
+def plot_sample(samples, dataset, idplots):
+    """Create sample visualization plot"""
+    import matplotlib.pyplot as plt
     
     # Create sample visualization
     fig, axes = plt.subplots(8, 7, figsize=(16, 16), dpi=100)
@@ -130,22 +152,48 @@ def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size,
     for ipl in range(51, len(axes)):
         axes[ipl].axis('off')
     
-    samples_path = f"{model_folder}/{model_id}-{epochs}::samples.pdf"
     plt.tight_layout()
-    plt.savefig(samples_path, bbox_inches='tight')
-    mlflow.log_artifact(samples_path, "samples")
+    return fig, axes
+
+
+def log_loss_plots_to_mlflow(losses):
+    """Log loss plots directly to MLflow"""
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    if not losses:
+        return
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # Full loss curve
+    axes[0].plot(np.arange(len(losses)), np.array(losses))
+    axes[0].set_title('Full Training Loss')
+    axes[0].set_xlabel('Step')
+    axes[0].set_ylabel('Loss')
+    axes[0].grid(True, alpha=0.3)
+    
+    # Last 1000 steps
+    last_1000 = losses[-1000:] if len(losses) > 1000 else losses
+    axes[1].plot(np.arange(len(last_1000)), np.array(last_1000))
+    axes[1].set_title('Last 1000 Steps')
+    axes[1].set_xlabel('Step')
+    axes[1].set_ylabel('Loss')
+    axes[1].grid(True, alpha=0.3)
+    
+    # Last 100 steps
+    last_100 = losses[-100:] if len(losses) > 100 else losses
+    axes[2].plot(np.arange(len(last_100)), np.array(last_100))
+    axes[2].set_title('Last 100 Steps')
+    axes[2].set_xlabel('Step')
+    axes[2].set_ylabel('Loss')
+    axes[2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    # Log figure directly to MLflow
+    mlflow.log_figure(fig, "training_loss_curves.png")
     plt.close()
-    
-    print(f">>> Samples saved to {samples_path}")
-    
-    # Log training completion metrics
-    mlflow.log_metrics({
-        "training_completed": 1,
-        "final_epoch": epochs,
-        "samples_generated": samples[-1].shape[0]
-    })
-    
-    print(f">>> Training completed for {model_id}")
 
 
 if __name__ == '__main__':

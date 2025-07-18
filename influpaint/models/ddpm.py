@@ -133,7 +133,7 @@ class DDPM:
             shape=(self.batch_size, self.channels, self.image_size, self.image_size),
         )
 
-    def train(self, dataloader):
+    def train(self, dataloader, mlflow_logging=False):
         print(f"/!\ training on {self.device}")
         if torch.cuda.device_count() > 1:
             print(" -- using dataparallel")
@@ -147,8 +147,11 @@ class DDPM:
         scheduler1 = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.99)
 
         losses = []
+        step_count = 0
 
         for epoch in range(self.epochs):
+            epoch_losses = []
+            
             for step, batch in enumerate(dataloader):
                 self.optimizer.zero_grad()
 
@@ -167,13 +170,22 @@ class DDPM:
                     denoise_model=self.model, x_start=batch, t=t, loss_type=self.loss_type
                 )  # loss_type="l2")#
 
+                loss_value = loss.item()
+                losses.append(loss_value)
+                epoch_losses.append(loss_value)
+
+                if mlflow_logging:
+                    import mlflow
+                    if step_count % 10 == 0:
+                        mlflow.log_metric("step_loss", loss_value, step=step_count)
+
                 if step % 100 == 0:
-                    print(f"Epoch: {epoch:<4} -- Loss: {loss.item()}")
+                    print(f"Epoch: {epoch:<4} -- Step: {step:<4} -- Loss: {loss_value:.6f}")
                 # if self.device == "cuda":
                 #    print(f"   -- {helpers.cuda_mem_info()}")
                 loss.backward()
                 self.optimizer.step()
-                losses.append(loss.item())
+                step_count += 1
 
                 if epoch % 50 == 0 and epoch > 0 and step == 0:
                     fig, axes = plt.subplots(1, 3, figsize=(6, 2), dpi=100)
@@ -184,7 +196,11 @@ class DDPM:
                     axes.flat[2].plot(
                         np.arange(len(losses[-50:])), np.array(losses[-50:])
                     )
-                    plt.show()
+                    if mlflow_logging:
+                        import mlflow
+                        mlflow.log_figure(fig, f"training_progress_epoch_{epoch}.png")
+                    else:
+                        plt.show()
 
                 # save generated images
                 if step != 0 and step % self.save_and_sample_every == 0:
@@ -206,7 +222,15 @@ class DDPM:
                         nrow=6,
                     )
 
+            if mlflow_logging:
+                import mlflow
+                epoch_avg_loss = sum(epoch_losses) / len(epoch_losses)
+                mlflow.log_metric("epoch_loss", epoch_avg_loss, step=epoch)
+                print(f"Epoch {epoch} completed - Avg Loss: {epoch_avg_loss:.6f}")
+
             # scheduler1.step()
+        
+        return losses
 
     def write_train_checkpoint(self, save_path=None):
         if save_path is None:
