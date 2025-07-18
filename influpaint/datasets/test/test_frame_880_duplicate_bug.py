@@ -45,7 +45,7 @@ def test_frame_880_duplicate_bug_fast(test_df, season_setup):
     - Before fix: 131 rows (duplicates)
     - After fix: ≤53 rows (no duplicates)
     """
-    # MOD_ONLY config that caused the original bug
+    # 100M config that caused the original bug
     mix_cfg = {
         "flepiR1": {"multiplier": 1},
         "SMH_R4-R5": {"multiplier": 1}

@@ -31,7 +31,7 @@ for h2_pattern in ['GLEAM', 'flepiMoP', 'USC-SIkJalpha']:
         if not h2_data.empty:
             fill_sources.append(h2_data)
 
-# 3. FLEPI DATA: Small subset for MOD_ONLY config
+# 3. FLEPI DATA: Small subset for 100M config
 flepi_data = all_datasets_df[
     (all_datasets_df['datasetH1'] == 'flepiR1') & 
     (all_datasets_df['fluseason'] == 2022)
