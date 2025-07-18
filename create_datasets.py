@@ -121,25 +121,25 @@ scaling_distribution = season_peaks[season_peaks['datasetH1'] == 'SMH_R4-R5'].va
 
 # %%
 DATASET_GRIDS = {
-    "SURV_ONLY": {
+    "100S": {
         "fluview":     {"multiplier": 26, "to_scale": True},
         "flusurv": {"multiplier": 26}
     },
     # 2. Hybrid 70 % surveillance / 30 % modeling 
-    "HYBRID_70S_30M": {
+    "70S30M": {
         "fluview":     {"proportion": 0.37, "total": 3000, "to_scale": True},
         "flusurv":     {"proportion": 0.33, "total": 3000},
         "flepiR1":     {"proportion": 0.05, "total": 3000},
         "SMH_R4-R5":   {"proportion": 0.25, "total": 3000}
     },
     # 3. Half-half (uncertainty stress-test)
-    "HYBRID_30S_70M": {
+    "30S70M": {
         "fluview":     {"proportion": 0.15, "total": 3000, "to_scale": True},
         "flusurv":     {"proportion": 0.15, "total": 3000},
         "flepiR1":     {"proportion": 0.05, "total": 3000},
         "SMH_R4-R5":   {"proportion": 0.65, "total": 3000}
     },
-    "MOD_ONLY": {
+    "100M": {
         "flepiR1":  {"multiplier": 1},
         "SMH_R4-R5": {"multiplier": 1}
     },
@@ -204,10 +204,10 @@ flu_payload_array
 # ## Let's check manually these dataset
 
 # %% [markdown]
-# ### HYBRID_30S_70M
+# ### 30S70M
 
 # %%
-to_read = "HYBRID_30S_70M"
+to_read = "30S70M"
 ds = xr.open_dataarray(f"training_datasets/TS_{to_read}_{today}.nc")
 #ds = ds[list(ds.data_vars)[0]]
 all_origin = ds.attrs.get("main_origins", None)

@@ -246,7 +246,7 @@ def model_library(image_size, channels, epoch, device, batch_size):
 
 def dataset_library(season_setup, channels):
     """Dataset configurations - easy to add new datasets"""
-    day = "2025-07-14"
+    day = "2025-07-17"
     
     dataset_spec = {
         # Legacy datasets
@@ -255,10 +255,10 @@ def dataset_library(season_setup, channels):
         #"R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels),
         
         # New DATASET_GRIDS - just comment/uncomment to enable/disable
-        "SURV_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_SURV_ONLY_{day}.nc", channels=channels),
-        "HYBRID_70S_30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_70S_30M_{day}.nc", channels=channels),
-        "HYBRID_30S_70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_HYBRID_30S_70M_{day}.nc", channels=channels),
-        "MOD_ONLY": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_MOD_ONLY_{day}.nc", channels=channels),
+        "100S": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100S_{day}.nc", channels=channels),
+        "70S30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_70S30M_{day}.nc", channels=channels),
+        "30S70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_30S70M_{day}.nc", channels=channels),
+        "100M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100M_{day}.nc", channels=channels),
     }
     return dataset_spec
 
@@ -319,7 +319,7 @@ def transform_library(scaling_per_channel):
 
 # Available options - easy to modify by commenting/uncommenting
 AVAILABLE_MODELS = ["U200", "U500"]
-AVAILABLE_DATASETS = ["SURV_ONLY", "HYBRID_70S_30M", "HYBRID_30S_70M", "MOD_ONLY"] #R1Fv, R1
+AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
 AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
