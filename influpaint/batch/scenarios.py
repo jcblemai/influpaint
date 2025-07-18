@@ -215,12 +215,14 @@ def print_available_scenarios():
     for i, scenario in enumerate(scenarios):
         print(f"{i:2d}: {scenario.scenario_string}")
     print(f"\nTotal: {len(scenarios)} essential training scenarios")
-
+    print(f"\n Line for slurm array")
+    print(','.join([str(scenario.scenario_id) for scenario in scenarios]))
     
     print("\n=== AVAILABLE INPAINTING SCENARIOS ===")
     scenarios = get_all_inpainting_scenarios()
     for i, scenario in enumerate(scenarios):
         print(f"{i:2d}: {scenario.scenario_string}")
+
     
     print(f"\nTotal: {len(scenarios)} inpainting scenarios")
 
