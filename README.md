@@ -4,6 +4,12 @@
 
 ## Code organisation
 - season_setup.py This module create axes dataframe to prepare arrayification
+w
+
+# Workflow
+- run flu_dataset_explorerNB.py to get a huge parquet dataframe of all the data used for training
+- rune create_dataset.py to build xarray dataset with multiple frames, no gap, scaled, and all
+- run train.run on slurm to train variants of influpaint
 
 
 

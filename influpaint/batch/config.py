@@ -1,6 +1,5 @@
 """
-Simple configuration libraries for InfluPaint research.
-Easy to modify - just comment/uncomment lines or add new entries.
+Configuration libraries for InfluPaint research.
 """
 
 import scipy.interpolate
@@ -22,9 +21,222 @@ from guided_diffusion import O_DDIMSampler
 from guided_diffusion import unet
 from utils import config
 
+# Available options
+AVAILABLE_DDPMS = ["U200", "U500"]
+AVAILABLE_UNETS = ["Rx124", "Cx124", "Rx1224", "Cx1224", "Rx12448"] #  "Cx12448", Cx124
+AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
+AVAILABLE_TRANSFORMS = ["Lins", "Sqrt", "LinsZs", "LogZs"]
+AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
+AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
+
+
+def unet_library(image_size, channels):
+    unet_spec = { "Rx124":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 4,),
+                use_convnext=False
+            ),
+        "Cx124":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 4,),
+                use_convnext=True
+            ),
+        "Rx1224":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 2, 4,),
+                use_convnext=False
+            ),
+        "Cx1224":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 2, 4,),
+                use_convnext=True
+            ),
+        "Rx12448":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 4, 4, 8,),
+                use_convnext=False
+            ),
+        "Cx12448":
+            nn_blocks.Unet(
+                dim=image_size,
+                channels=channels,
+                dim_mults=(1, 2, 4, 4, 8,),
+                use_convnext=True
+            ),
+    }
+    return unet_spec
+
+def ddpm_library(image_size, channels, epoch, device, batch_size, unet):
+    """Model configurations"""
+
+    ddpm_spec = {
+        "U200l": ddpm.DDPM(
+            model=unet, 
+            image_size=image_size, 
+            channels=channels, 
+            batch_size=batch_size, 
+            epochs=epoch, 
+            timesteps=200,
+            beta_schedule="linear",
+            device=device,
+            loss_type="l2"
+        ),
+        "U500l": ddpm.DDPM(
+            model=unet, 
+            image_size=image_size, 
+            channels=channels, 
+            batch_size=batch_size, 
+            epochs=epoch, 
+            timesteps=500,
+            beta_schedule="linear",
+            device=device,
+            loss_type="l2"
+        ),
+        "U200c": ddpm.DDPM(
+            model=unet, 
+            image_size=image_size, 
+            channels=channels, 
+            batch_size=batch_size, 
+            epochs=epoch, 
+            timesteps=200,
+            beta_schedule="cosine",
+            device=device,
+            loss_type="l2"
+        ),
+        "U500c": ddpm.DDPM(
+            model=unet, 
+            image_size=image_size, 
+            channels=channels, 
+            batch_size=batch_size, 
+            epochs=epoch, 
+            timesteps=500,
+            beta_schedule="cosine",
+            device=device,
+            loss_type="l2"
+        ),
+        "U800c": ddpm.DDPM(
+            model=unet, 
+            image_size=image_size, 
+            channels=channels, 
+            batch_size=batch_size, 
+            epochs=epoch, 
+            timesteps=800,
+            beta_schedule="cosine",
+            device=device,
+            loss_type="l2"
+        ),
+    }
+    return ddpm_spec
+
+
+def dataset_library(season_setup, channels):
+    """Dataset configurations"""
+    day = "2025-07-17"
+    
+    dataset_spec = {
+        # Legacy datasets
+        # "Fv": training_datasets.FluDataset.from_fluview(season_setup=season_setup, download=False),
+        #"R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=season_setup, download=False),
+        #"R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels),
+        
+        # New DATASET_GRIDS - just comment/uncomment to enable/disable
+        "100S": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100S_{day}.nc", channels=channels),
+        "70S30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_70S30M_{day}.nc", channels=channels),
+        "30S70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_30S70M_{day}.nc", channels=channels),
+        "100M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100M_{day}.nc", channels=channels),
+    }
+    return dataset_spec
+
+
+def transform_library(scaling_per_channel, data_mean, data_std):
+    """Transform configuration"""
+    from torchvision import transforms
+    from influpaint.datasets import transforms as epitransforms
+
+
+    transform_enrich = {
+        "No": transforms.Compose([]),
+        "PoisPadScale": transforms.Compose([
+            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
+            transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift=-15, max_shift=15)),
+            transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.1, max=1.9)),
+        ]),
+        "PoisPadScaleSmall": transforms.Compose([
+            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
+            transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift=-4, max_shift=4)),
+            transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.7, max=1.3)),
+        ]),
+        "Pois": transforms.Compose([
+            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
+        ])
+    }
+
+    transforms_spec = {
+        # No scaling (linear scale)
+        "Lins": {
+            "reg": transforms.Compose([
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=1/scaling_per_channel)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=2)),
+            ]),
+            "inv": transforms.Compose([
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=1/scaling_per_channel)),
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=2)),
+            ][::-1])  
+        },
+        # sqrt scale
+        "Sqrt": {
+            "reg": transforms.Compose([
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=1/scaling_per_channel)),
+                epitransforms.transform_sqrt,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=2)),
+            ]),
+            "inv": transforms.Compose([
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=1/scaling_per_channel)),
+                epitransforms.transform_sqrt_inv,
+                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=2)),
+            ][::-1])  
+        },
+        # Log-transform followed by Z-score
+        "LogZs": {
+            "reg": transforms.Compose([
+                # Use log1p for numerical stability, calculates log(1+t)
+                transforms.Lambda(lambda t: torch.log1p(t)),
+                # Standardize the log-transformed data
+                transforms.Lambda(lambda t: (t - np.log(data_mean)) / np.log(data_std)),
+            ]),
+            "inv": transforms.Compose([
+                # Inverse of log1p is expm1
+                transforms.Lambda(lambda t: torch.expm1(t)),
+                # Inverse of standardization
+                transforms.Lambda(lambda t: t * np.log(data_std) + np.log(data_mean)),
+            ][::-1]) # Reverses to apply inv_zscore, then inv_log
+        },
+        "LinsZs": {
+            "reg": transforms.Compose([
+                transforms.Lambda(lambda t: (t - data_mean) / data_std),
+            ]),
+            "inv": transforms.Compose([
+                transforms.Lambda(lambda t: t * data_std + data_mean),
+            ])
+        }
+    }
+
+    return transforms_spec, transform_enrich
+
+
 
 def copaint_config_library(timesteps):
-    """CoPaint inpainting configurations - easy to modify parameters"""
+    """CoPaint inpainting configurations"""
     config_lib = {
         "celebahq_try1": config.Config(default_config_dict={
             "respace_interpolate": False,
@@ -208,121 +420,6 @@ def copaint_config_library(timesteps):
     }
     return config_lib
 
-
-def model_library(image_size, channels, epoch, device, batch_size):
-    """Model configurations - easy to add new models"""
-    unet_spec = {
-        "U200": ddpm.DDPM(
-            model=nn_blocks.Unet(
-                dim=image_size,
-                channels=channels,
-                dim_mults=(1, 2, 4,),
-                use_convnext=False
-            ), 
-            image_size=image_size, 
-            channels=channels, 
-            batch_size=batch_size, 
-            epochs=epoch, 
-            timesteps=200,
-            device=device
-        ),
-        "U500": ddpm.DDPM(
-            model=nn_blocks.Unet(
-                dim=image_size,
-                channels=channels,
-                dim_mults=(1, 2, 4,),
-                use_convnext=False
-            ), 
-            image_size=image_size, 
-            channels=channels, 
-            batch_size=batch_size, 
-            epochs=epoch, 
-            timesteps=500,
-            device=device
-        )
-    }
-    return unet_spec
-
-
-def dataset_library(season_setup, channels):
-    """Dataset configurations - easy to add new datasets"""
-    day = "2025-07-17"
-    
-    dataset_spec = {
-        # Legacy datasets
-        # "Fv": training_datasets.FluDataset.from_fluview(season_setup=season_setup, download=False),
-        #"R1Fv": training_datasets.FluDataset.from_SMHR1_fluview(season_setup=season_setup, download=False),
-        #"R1": training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels),
-        
-        # New DATASET_GRIDS - just comment/uncomment to enable/disable
-        "100S": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100S_{day}.nc", channels=channels),
-        "70S30M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_70S30M_{day}.nc", channels=channels),
-        "30S70M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_30S70M_{day}.nc", channels=channels),
-        "100M": lambda: training_datasets.FluDataset.from_xarray(f"training_datasets/TS_100M_{day}.nc", channels=channels),
-    }
-    return dataset_spec
-
-
-def transform_library(scaling_per_channel):
-    """Transform configurations - easy to modify parameters"""
-    from torchvision import transforms
-    from influpaint.datasets import transforms as epitransforms
-
-    print(scaling_per_channel)
-
-    transform_enrich = {
-        "No": transforms.Compose([]),
-        "PoisPadScale": transforms.Compose([
-            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
-            transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift=-15, max_shift=15)),
-            transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.1, max=1.9)),
-        ]),
-        "PoisPadScaleSmall": transforms.Compose([
-            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
-            transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift=-4, max_shift=4)),
-            transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.7, max=1.3)),
-        ]),
-        "Pois": transforms.Compose([
-            transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
-        ])
-    }
-
-    transforms_spec = {
-        # No scaling (linear scale)
-        "Lins": {
-            "reg": transforms.Compose([
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=1/scaling_per_channel)),
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=2)),
-            ]),
-            "inv": transforms.Compose([
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=1/scaling_per_channel)),
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=2)),
-            ][::-1])  
-        },
-        # sqrt scale
-        "Sqrt": {
-            "reg": transforms.Compose([
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=1/scaling_per_channel)),
-                epitransforms.transform_sqrt,
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale=2)),
-            ]),
-            "inv": transforms.Compose([
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=1/scaling_per_channel)),
-                epitransforms.transform_sqrt_inv,
-                transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale=2)),
-            ][::-1])  
-        },
-    }
-
-    return transforms_spec, transform_enrich
-
-
-# Available options - easy to modify by commenting/uncommenting
-AVAILABLE_MODELS = ["U200", "U500"]
-AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
-AVAILABLE_TRANSFORMS = ["Lins", "Sqrt"]
-AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
-AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
 
 
 # Helper functions

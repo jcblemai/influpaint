@@ -71,7 +71,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         # Log scenario and run parameters
         params = {
             "scenario_id": scn_id,
-            "unet_name": scenario_spec.unet_name,
+            "ddpm_name": scenario_spec.ddpm_name,
             "dataset_name": scenario_spec.dataset_name,
             "transform_name": scenario_spec.transform_name,
             "enrich_name": scenario_spec.enrich_name,
@@ -96,24 +96,26 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         # Create objects using simple helper
         print("Creating model, dataset, and transforms...")
         from .scenarios import create_scenario_objects
-        unet, dataset, transform, enrich, scaling_per_channel = create_scenario_objects(
+        ddpm, dataset, transform, enrich, scaling_per_channel, data_mean, data_sd = create_scenario_objects(
             scenario_spec, season_setup, image_size, channels, batch_size, 800, device
         )
         
         # Load trained model
-        model_source = load_model(unet, run_id, model_path)
+        model_source = load_model(ddpm, run_id, model_path)
         mlflow.log_param("model_source", model_source)
         
         # Log additional parameters
         mlflow.log_param("scaling_per_channel", scaling_per_channel.tolist())
+        mlflow.log_param("data_mean", float(data_mean))
+        mlflow.log_param("data_std", float(data_sd))
         
         # Run inpainting
-        run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
+        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 
 
-def load_model(unet, run_id=None, model_path=None):
+def load_model(ddpm, run_id=None, model_path=None):
     """Load model from MLflow or filesystem"""
     if run_id:
         try:
@@ -122,8 +124,8 @@ def load_model(unet, run_id=None, model_path=None):
             print(f"Loading PyTorch model from MLflow: {model_uri}")
             loaded_model = mlflow.pytorch.load_model(model_uri)
             
-            # Replace the model in unet
-            unet.model = loaded_model
+            # Replace the model in ddpm
+            ddpm.model = loaded_model
             
             # Also try to load checkpoint for additional state
             try:
@@ -137,7 +139,7 @@ def load_model(unet, run_id=None, model_path=None):
                     if file.endswith('.pth'):
                         full_checkpoint_path = os.path.join(checkpoint_path, file)
                         print(f"Loading additional checkpoint state from: {full_checkpoint_path}")
-                        unet.load_model_checkpoint(full_checkpoint_path)
+                        ddpm.load_model_checkpoint(full_checkpoint_path)
                         break
             except Exception as e:
                 print(f"Warning: Could not load checkpoint artifacts: {e}")
@@ -151,7 +153,7 @@ def load_model(unet, run_id=None, model_path=None):
     elif model_path:
         try:
             print(f"Loading model checkpoint from filesystem: {model_path}")
-            unet.load_model_checkpoint(model_path)
+            ddpm.load_model_checkpoint(model_path)
             return f"filesystem:{model_path}"
         except Exception as e:
             raise click.ClickException(f"Failed to load model from {model_path}: {e}")
@@ -160,7 +162,7 @@ def load_model(unet, run_id=None, model_path=None):
         raise ValueError("Must provide either run_id or model_path")
 
 
-def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name):
+def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name):
     """Run inpainting for a single scenario, date, and config"""
     model_id = scenario_spec.scenario_string
     print(f">>> Running inpainting for {model_id}")
@@ -173,7 +175,7 @@ def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_siz
         raise ValueError(f"Invalid forecast_date format: {forecast_date}. Use YYYY-MM-DD")
     
     # Validate config exists
-    available_configs = copaint_config_library(unet.timesteps)
+    available_configs = copaint_config_library(ddpm.timesteps)
     if config_name not in available_configs:
         available = list(available_configs.keys())
         raise ValueError(f"Config '{config_name}' not found. Available: {available}")
@@ -206,9 +208,9 @@ def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_siz
     try:
         # Create sampler
         sampler = O_DDIMSampler(
-            use_timesteps=np.arange(unet.timesteps),
+            use_timesteps=np.arange(ddpm.timesteps),
             conf=conf,
-            betas=unet.betas,
+            betas=ddpm.betas,
             model_mean_type=None,
             model_var_type=None,
             loss_type=None
@@ -216,7 +218,7 @@ def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_siz
         
         # Run sampling
         result = sampler.p_sample_loop(
-            model_fn=unet.model,
+            model_fn=ddpm.model,
             shape=(batch_size, channels, image_size, image_size),
             conf=conf,
             model_kwargs={
@@ -253,7 +255,7 @@ def run_inpainting(scenario_spec, unet, dataset, image_size, channels, batch_siz
             'forecast_min': float(forecasts_national.min()),
             'forecast_max': float(forecasts_national.max()),
             'num_samples': len(forecasts_national),
-            'timesteps': unet.timesteps
+            'timesteps': ddpm.timesteps
         }
         
         mlflow.log_metrics(metrics)

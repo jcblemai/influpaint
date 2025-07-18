@@ -52,7 +52,7 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
         # Log scenario and run parameters
         mlflow.log_params({
             "scenario_id": scn_id,
-            "unet_name": scenario_spec.unet_name,
+            "ddpm_name": scenario_spec.unet_name,
             "dataset_name": scenario_spec.dataset_name,
             "transform_name": scenario_spec.transform_name,
             "enrich_name": scenario_spec.enrich_name,
@@ -66,21 +66,23 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
         
         # Create objects using simple helper
         print("Creating model, dataset, and transforms...")
-        unet, dataset, transform, enrich, scaling_per_channel = create_scenario_objects(
+        ddpm, dataset, transform, enrich, scaling_per_channel, data_mean, data_sd = create_scenario_objects(
             scenario_spec, season_setup, image_size, channels, batch_size, epochs, device
         )
         
         # Log additional parameters
         mlflow.log_param("scaling_per_channel", scaling_per_channel.tolist())
+        mlflow.log_param("data_mean", float(data_mean))
+        mlflow.log_param("data_std", float(data_sd))
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run training
-        run_training(scenario_spec, unet, dataset, image_size, channels, batch_size, epochs, device, outdir)
+        run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size, epochs, device, outdir)
         
         print(f"Training completed for scenario {scn_id}")
 
 
-def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size, epochs, device, outdir):
+def run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size, epochs, device, outdir):
     """Run training for a scenario"""
     # Create output directory
     model_folder = f"{outdir}{get_git_revision_short_hash()}_{datetime.date.today()}"
@@ -98,20 +100,20 @@ def run_training(scenario_spec, unet, dataset, image_size, channels, batch_size,
     mlflow.log_metric("training_started", 1)
     
     print(">>> Starting training...")
-    losses = unet.train(dataloader, mlflow_logging=True)
+    losses = ddpm.train(dataloader, mlflow_logging=True)
     
     # Save model checkpoint
     checkpoint_path = f"{model_folder}/{model_id}::{epochs}.pth"
-    unet.write_train_checkpoint(save_path=checkpoint_path)
+    ddpm.write_train_checkpoint(save_path=checkpoint_path)
     print(f">>> Model saved to {checkpoint_path}")
     
     # Log model to MLflow
-    mlflow.pytorch.log_model(unet.model, "model")
+    mlflow.pytorch.log_model(ddpm.model, "model")
     mlflow.log_artifact(checkpoint_path, "checkpoints")
     
     # Generate and log sample images
     print(">>> Generating samples...")
-    samples = unet.sample()
+    samples = ddpm.sample()
     
     # Create and log sample plot
     fig, axes = plot_sample(samples, dataset, idplots)
