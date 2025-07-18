@@ -18,6 +18,11 @@
 # %% [markdown]
 # # Create dataset
 # create calibration datasets, requires flu_dataset_explorerNB to have run
+to send them on longleaf:
+```bash
+scp -r training_datasets/*.nc chadi@longleaf.unc.edu:/users/c/h/chadi/influpaint/training_datasets
+```
+
 
 # %%
 import pandas as pd

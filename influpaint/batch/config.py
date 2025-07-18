@@ -5,6 +5,7 @@ Configuration libraries for InfluPaint research.
 import scipy.interpolate
 import itertools
 import datetime
+import torch
 import numpy as np
 import pandas as pd
 import subprocess
