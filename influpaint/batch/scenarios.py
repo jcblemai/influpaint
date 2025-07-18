@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import List
 import itertools
 from .config import AVAILABLE_DDPMS,AVAILABLE_UNETS, AVAILABLE_DATASETS, AVAILABLE_TRANSFORMS, AVAILABLE_ENRICHMENTS, AVAILABLE_COPAINT_CONFIGS
+from .config import CONFIG_BASELINE
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,78 @@ def get_all_training_scenarios() -> List[TrainingScenario]:
                         scn_id += 1
     
     return scenarios
+
+from typing import List, Dict
+from .config import (
+    AVAILABLE_DDPMS, AVAILABLE_UNETS, AVAILABLE_DATASETS, 
+    AVAILABLE_TRANSFORMS, AVAILABLE_ENRICHMENTS
+)
+
+# This function assumes the 'TrainingScenario' dataclass is defined in the same file.
+
+def get_essential_scenarios(
+    all_scenarios: List['TrainingScenario'], 
+    baseline: Dict[str, str]
+) -> List['TrainingScenario']:
+    """
+    Prunes a list of scenarios to the essential set for analysis.
+    This includes the baseline and all single-parameter variations from it.
+    
+    For example, if baseline is {ddpm: "U500c", unet: "Rx124", dataset: "70S30M", ...}
+    Returns scenarios that vary only ONE parameter while keeping others at baseline:
+    - baseline scenario
+    - all ddpm options with other params at baseline  
+    - all unet options with other params at baseline
+    - etc.
+
+    Args:
+        all_scenarios: The full list of TrainingScenario objects to be pruned.
+        baseline: A dictionary defining the baseline configuration.
+                  Keys must match TrainingScenario attribute names.
+
+    Returns:
+        A pruned list of TrainingScenario objects.
+    """
+    essential_scenarios = []
+    seen_ids = set()
+
+    # Map baseline keys to the lists of all available options
+    options_map = {
+        'ddpm_name': AVAILABLE_DDPMS,
+        'unet_name': AVAILABLE_UNETS,
+        'dataset_name': AVAILABLE_DATASETS,
+        'transform_name': AVAILABLE_TRANSFORMS,
+        'enrich_name': AVAILABLE_ENRICHMENTS,
+    }
+
+    # Helper to check if a scenario object matches a config dictionary
+    def _matches(scenario: 'TrainingScenario', config: Dict[str, str]) -> bool:
+        for key, value in config.items():
+            if getattr(scenario, key) != value:
+                return False
+        return True
+
+    # 1. Add the baseline configuration
+    target_configs = [baseline]
+    
+    # 2. For each parameter, create configs that vary ONLY that parameter
+    for param_key, all_options in options_map.items():
+        for option in all_options:
+            if baseline[param_key] != option:  # Only non-baseline values
+                # Create config with ONLY this parameter changed
+                new_config = baseline.copy()
+                new_config[param_key] = option
+                target_configs.append(new_config)
+
+    # 3. Find the scenario object for each target configuration
+    for config in target_configs:
+        for scenario in all_scenarios:
+            if scenario.scenario_id not in seen_ids and _matches(scenario, config):
+                essential_scenarios.append(scenario)
+                seen_ids.add(scenario.scenario_id)
+                break # Found the match, move to the next config
+
+    return essential_scenarios
 
 
 def get_all_inpainting_scenarios() -> List[InpaintingScenario]:
@@ -134,8 +207,15 @@ def print_available_scenarios():
     scenarios = get_all_training_scenarios()
     for i, scenario in enumerate(scenarios):
         print(f"{i:2d}: {scenario.scenario_string}")
-    
+
     print(f"\nTotal: {len(scenarios)} training scenarios")
+
+    print("\n=== ESSENTIAL TRAINING SCENARIOS ===")
+    scenarios = get_essential_scenarios(scenarios, CONFIG_BASELINE)
+    for i, scenario in enumerate(scenarios):
+        print(f"{i:2d}: {scenario.scenario_string}")
+    print(f"\nTotal: {len(scenarios)} essential training scenarios")
+
     
     print("\n=== AVAILABLE INPAINTING SCENARIOS ===")
     scenarios = get_all_inpainting_scenarios()

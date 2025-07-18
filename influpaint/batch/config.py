@@ -30,12 +30,12 @@ AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
 AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
 
 # Making a baseline to prune the search space
-baseline = {
-    "ddpm": "U500c",
-    "unet": "Rx124",
-    "dataset": "70S30M",
-    "transform": "Sqrt",
-    "enrichment": "No"
+CONFIG_BASELINE = {
+    "ddpm_name": "U500c",
+    "unet_name": "Rx124",
+    "dataset_name": "30S70M",
+    "transform_name": "Sqrt",
+    "enrich_name": "No"
 }
 
 def unet_library(image_size, channels):
