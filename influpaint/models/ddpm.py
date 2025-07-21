@@ -116,6 +116,8 @@ class DDPM:
     @torch.no_grad()
     def p_sample_loop(self, shape):
         device = next(self.model.parameters()).device
+        if device == "cuda":
+            print(myutils.cuda_mem_info())
 
         b = shape[0]
         # start from pure noise (for each example in the batch)
@@ -131,6 +133,8 @@ class DDPM:
                 img, torch.full((b,), i, device=device, dtype=torch.long), i
             )
             imgs.append(img.cpu().numpy())
+        if device == "cuda":
+            print(myutils.cuda_mem_info())
         return imgs
 
     @torch.no_grad()
@@ -236,6 +240,8 @@ class DDPM:
                 mlflow.log_metric("epoch_loss", epoch_avg_loss, step=epoch)
             
             # scheduler1.step()
+        if self.device == "cuda":
+            print(myutils.cuda_mem_info())
         
         return losses
 
