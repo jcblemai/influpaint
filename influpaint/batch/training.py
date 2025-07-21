@@ -244,11 +244,10 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
             f.write(f"Number of samples: {samples[-1].shape[0]}\n")
             f.write(f"Sample shape: {samples[-1].shape}\n")
             f.write(f"Sample dtype: {samples[-1].dtype}\n")
-            f.write(f"Sample device: {samples[-1].device}\n")
-            f.write(f"Sample min: {samples[-1].min().item():.6f}\n")
-            f.write(f"Sample max: {samples[-1].max().item():.6f}\n")
-            f.write(f"Sample mean: {samples[-1].mean().item():.6f}\n")
-            f.write(f"Sample std: {samples[-1].std().item():.6f}\n")
+            f.write(f"Sample min: {samples[-1].min():.6f}\n")
+            f.write(f"Sample max: {samples[-1].max():.6f}\n")
+            f.write(f"Sample mean: {samples[-1].mean():.6f}\n")
+            f.write(f"Sample std: {samples[-1].std():.6f}\n")
             f.write(f"Inverse transformed samples shape: {np.array(inv_samples).shape}\n")
             f.write(f"Inverse transformed min: {np.array(inv_samples).min():.6f}\n")
             f.write(f"Inverse transformed max: {np.array(inv_samples).max():.6f}\n")
@@ -258,10 +257,10 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
         # 4. Log sample statistics as metrics
         mlflow.log_metrics({
             "sample_count": samples[-1].shape[0],
-            "sample_min": samples[-1].min().item(),
-            "sample_max": samples[-1].max().item(),
-            "sample_mean": samples[-1].mean().item(),
-            "sample_std": samples[-1].std().item(),
+            "sample_min": float(samples[-1].min()),
+            "sample_max": float(samples[-1].max()),
+            "sample_mean": float(samples[-1].mean()),
+            "sample_std": float(samples[-1].std()),
             "inv_sample_min": np.array(inv_samples).min(),
             "inv_sample_max": np.array(inv_samples).max(),
             "inv_sample_mean": np.array(inv_samples).mean(),
