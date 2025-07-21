@@ -206,7 +206,7 @@ def plot_us_grid(data, season_axis, value_col='value', location_col='location_co
                  date_col='week_enddate', colors=None, line_width=2.5, 
                  alpha_fill=0.2, quantile_cols=None, title_suffix='', 
                  date_range=None, y_ticks=None, date_format='%Y', sample_idx=None, 
-                 multi_line=False, show_us_summary=True, sharey=True):
+                 multi_line=False, show_us_summary=True, sharey=True, past_ground_truth=None):
     """
     Plot time series data in a US state grid layout.
     
@@ -251,6 +251,10 @@ def plot_us_grid(data, season_axis, value_col='value', location_col='location_co
         If True, shows a summary plot for all US locations combined
     sharey : bool
         If True, shares y-axis across all subplots
+    past_ground_truth : pd.DataFrame, bool, or None
+        If True, loads from default path 'influpaint/data/nhsn_flusight_past.csv'.
+        If DataFrame, ground truth data with same structure as input data.
+        If None, no ground truth overlay.
         
     Returns:
     --------
@@ -271,6 +275,23 @@ def plot_us_grid(data, season_axis, value_col='value', location_col='location_co
         'nc': (5, 6), 'sc': (5, 7), 'dc': (5, 8), 'ok': (6, 3), 'la': (6, 4), 
         'ms': (6, 5), 'al': (6, 6), 'ga': (6, 7), 'hi': (6, 0), 'tx': (7, 3), 'fl': (7, 7)
     }
+    
+    # Load and process ground truth data if provided
+    gt_plot_data = None
+    if past_ground_truth is not None:
+        if past_ground_truth is True:
+            # Load from default path
+            gt_df = pd.read_csv('influpaint/data/nhsn_flusight_past.csv')
+        else:
+            # Use provided DataFrame
+            gt_df = past_ground_truth.copy()
+        
+        # Process for plotting - assume columns exist: season_week, location_code, fluseason, value
+        gt_plot_data = {}
+        for season in gt_df['fluseason'].unique():
+            season_data = gt_df[gt_df['fluseason'] == season]
+            season_pivot = season_data.pivot(columns='location_code', values=value_col, index='season_week')
+            gt_plot_data[season] = season_pivot
     
     # Detect input type and convert to common format
     if isinstance(data, xr.DataArray):
@@ -491,6 +512,17 @@ def plot_us_grid(data, season_axis, value_col='value', location_col='location_co
                     ax[po].fill_between(q25_data.index, q25_data.values, q75_data.values, 
                                       color=colors[0], alpha=alpha_fill, linewidth=0)
         
+        # Plot ground truth if provided
+        if gt_plot_data is not None:
+            # Plot each season separately
+            for season_key, season_data in gt_plot_data.items():
+                if location_key in season_data.columns:
+                    gt_series = season_data[location_key].dropna()
+                    if not gt_series.empty:
+                        ax[po].plot(gt_series.index, gt_series.values, 
+                                   color='black', linewidth=line_width * 0.6, 
+                                   linestyle='--', alpha=0.6)
+        
         # Always show state names - use 2-letter abbreviations
         state_abbrev = st_upper
         
@@ -607,6 +639,17 @@ def plot_us_grid(data, season_axis, value_col='value', location_col='location_co
             # For DataFrame data, calculate US sum (not average)
             us_summary = data.groupby(date_col)[value_col].sum()
             axbig.plot(us_summary.index, us_summary.values, color=colors[0], linewidth=line_width * 1.5)
+        
+        # Plot ground truth for US summary if provided
+        if gt_plot_data is not None:
+            # Plot each season separately for US summary
+            for season_key, season_data in gt_plot_data.items():
+                # Calculate US sum for ground truth
+                us_gt_sum = season_data.sum(axis=1).dropna()
+                if not us_gt_sum.empty:
+                    axbig.plot(us_gt_sum.index, us_gt_sum.values, 
+                              color='black', linewidth=line_width * 0.8, 
+                              linestyle='--', alpha=0.6)
         
         # Style the US summary plot
         axbig.text(0.04, 0.96, 'United States', fontsize='xx-large', va='top', ha='left',

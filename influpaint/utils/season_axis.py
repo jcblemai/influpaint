@@ -2,6 +2,8 @@ import datetime
 import pandas as pd
 import math
 from typing import Union
+import numpy as np
+import xarray as xr
 
 # locations, in the right order
 class SeasonAxis:
@@ -237,6 +239,18 @@ class SeasonAxis:
             df = df.assign(fluseason=df["week_enddate"].apply(self.get_fluseason_year))
 
         return df
+    
+    def add_axis_to_numpy_array(self, array, truncate=False):
+        flu_payload_array = xr.DataArray(array, 
+                            coords={'sample': np.arange(array.shape[0]),
+                            'feature': np.arange(array.shape[1]),
+                            'season_week': np.arange(1, array.shape[2]+1),
+                            'place': self.locations + [""]*(array.shape[3] - len(self.locations))}, 
+                            dims=["sample", "feature", "season_week", "place"])
+        if truncate:
+            flu_payload_array = flu_payload_array.sel(season_week=slice(1, 53))
+            flu_payload_array =  flu_payload_array.where(flu_payload_array.place != "", drop=True)
+        return flu_payload_array
 
     
 def get_season_year(ts, start_month: int, start_day: int):

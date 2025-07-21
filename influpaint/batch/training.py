@@ -17,12 +17,9 @@ import mlflow.pytorch
 from .scenarios import get_training_scenario, create_scenario_objects
 from .config import get_git_revision_short_hash, create_folders
 from ..utils import plotting as idplots
+from influpaint.utils import SeasonAxis
 
-
-# Need to initialize season_setup - this might need to be passed from elsewhere
-# For now, keeping the same structure but will need to be set properly
-season_setup = None  # This needs to be set based on your specific setup
-
+season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 
 @click.command()
 @click.option("-s", "--scn_id", "scn_id", required=True, type=int, help="ID of the scenario to train")
@@ -224,6 +221,18 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
             inv_samples.append(inv_sample)
         np.save(inv_samples_path, np.array(inv_samples))
         mlflow.log_artifact(inv_samples_path, "samples")
+
+        full_payload_array = season_setup.add_axis_to_numpy_array(np.array(inv_samples), truncate=True)
+        fig, ax = idplots.plot_us_grid(
+            data=full_payload_array,
+            season_axis=season_setup,
+            sample_idx=list(np.arange(0, 100, step=5)),
+            multi_line=True,
+            sharey=False,
+            past_ground_truth=True,
+        )
+        mlflow.log_figure(fig, "sample_us_map.png")
+
         
         # 3. Log sample metadata
         metadata_path = os.path.join(temp_dir, "sample_metadata.txt")
@@ -231,7 +240,6 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
             f.write(f"Scenario: {scenario_string}\n")
             f.write(f"Number of samples: {samples[-1].shape[0]}\n")
             f.write(f"Sample shape: {samples[-1].shape}\n")
-            f.write(f"Sample dtype: {samples[-1].dtype}\n")
             f.write(f"Sample min: {samples[-1].min():.6f}\n")
             f.write(f"Sample max: {samples[-1].max():.6f}\n")
             f.write(f"Sample mean: {samples[-1].mean():.6f}\n")
@@ -255,125 +263,8 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
             "inv_sample_std": np.array(inv_samples).std()
         })
         
-        # 5. Create spatially-aware samples with season axis for US map plotting
-        create_us_map_visualization(inv_samples, dataset, scenario_string, temp_dir)
         
         print(f">>> Logged {len(inv_samples)} samples as artifacts")
-
-
-def create_us_map_visualization(inv_samples, dataset, scenario_string, temp_dir):
-    """Create US map visualization for generated samples with proper padding handling"""
-    try:
-        import numpy as np
-        import xarray as xr
-        import os
-        from ..utils.season_axis import SeasonAxis
-        
-        # Create season axis for US states (same as used in dataset creation)
-        season_axis = SeasonAxis.for_flusight(
-            remove_us=True,           # Remove US national total
-            remove_territories=True   # Remove territories for cleaner visualization
-        )
-        
-        # Take first 20 samples for US map visualization
-        n_viz_samples = min(20, len(inv_samples))
-        viz_samples = np.array(inv_samples)[:n_viz_samples]
-        
-        # Create xarray with proper spatial coordinates including padding
-        # Expected format: (sample, feature, season_week, place)
-        n_features = viz_samples.shape[1]  # Usually 1 for single feature
-        n_weeks = viz_samples.shape[2]     # Number of time steps
-        n_places_total = viz_samples.shape[3]  # Total including padding
-        n_places_real = len(season_axis.locations)  # Real locations
-        
-        # Create padded location coordinates (same as build_dataset_from_framelist)
-        place_coords = season_axis.locations + [""] * (n_places_total - n_places_real)
-        
-        # Create xarray with proper coordinates including padding
-        samples_xarray = xr.DataArray(
-            viz_samples,
-            coords={
-                'sample': np.arange(n_viz_samples),
-                'feature': np.arange(n_features),
-                'season_week': np.arange(1, n_weeks + 1),  # Season weeks 1-53
-                'place': place_coords  # US state codes + padding
-            },
-            dims=['sample', 'feature', 'season_week', 'place']
-        )
-        
-        # Remove padding for visualization (select only real locations)
-        samples_xarray_clean = samples_xarray.sel(place=season_axis.locations)
-        
-        # 1. Create US map visualization
-        fig_us_map, _ = idplots.plot_us_grid(
-            data=samples_xarray_clean,
-            season_axis=season_axis,
-            sample_idx=list(range(n_viz_samples)),  # Plot all samples
-            multi_line=True,                        # Multiple lines per state
-            show_us_summary=True,                   # Include US summary
-            sharey=False,                          # Independent y-axes
-            title_suffix=f' - {scenario_string}',  # Add scenario info
-            alpha_fill=0.1,                        # Light fill for readability
-            line_width=1.0                         # Thinner lines for multi-line
-        )
-        
-        # Log the US map visualization
-        mlflow.log_figure(fig_us_map, "generated_samples_us_map.png")
-        plt.close(fig_us_map)
-        
-        # 2. Create detailed few-sample visualization
-        # Convert samples back to the format expected by plot_few_sample
-        # plot_few_sample expects samples in format: samples[-1] shape (batch_size, channels, height, width)
-        # We need to reconstruct this from our inv_samples
-        
-        # Take first 5 samples for detailed visualization
-        n_detail_samples = min(5, len(inv_samples))
-        
-        # Create a mock samples structure for plot_few_sample
-        # inv_samples has shape (n_samples, n_features, n_weeks, n_places_total)
-        # We need to reshape to (n_samples, n_features, height, width) format
-        
-        # Reshape for plot_few_sample: (n_samples, n_features, n_weeks, n_places_real)
-        detail_samples = viz_samples[:n_detail_samples, :, :, :n_places_real]
-        
-        # Create mock samples list (plot_few_sample expects samples[-1])
-        class MockSamples:
-            def __init__(self, final_samples):
-                self.final_samples = final_samples
-            
-            def __getitem__(self, idx):
-                if idx == -1:
-                    return self.final_samples
-                return self.final_samples[idx]
-        
-        mock_samples = MockSamples(detail_samples)
-        
-        # Generate the detailed few-sample visualization
-        fig_detail = idplots.plot_few_sample(
-            samples=mock_samples,
-            dataset=dataset,
-            indices=list(range(n_detail_samples)),
-            season_labels=[f'({chr(97+i)}) Sample {i+1}' for i in range(n_detail_samples)],
-            title=f'Generated Samples - {scenario_string}'
-        )
-        
-        # Log the detailed few-sample visualization
-        mlflow.log_figure(fig_detail, "generated_samples_detailed.png")
-        plt.close(fig_detail)
-        
-        # Save the spatially-aware xarray (with padding for consistency)
-        samples_xarray_path = os.path.join(temp_dir, "samples_with_spatial_coords.nc")
-        samples_xarray.to_netcdf(samples_xarray_path)
-        mlflow.log_artifact(samples_xarray_path, "samples")
-        
-        print(f">>> Created US map visualization with {n_viz_samples} samples")
-        print(f">>> Created detailed few-sample visualization with {n_detail_samples} samples")
-        print(f">>> Spatial dimensions: {n_features} features × {n_weeks} weeks × {n_places_real} locations (+ {n_places_total - n_places_real} padding)")
-        
-    except Exception as e:
-        print(f">>> Warning: Could not create US map visualization: {e}")
-        print(f">>> Continuing with standard sample logging...")
-
 
 if __name__ == '__main__':
     main()
