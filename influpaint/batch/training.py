@@ -110,8 +110,20 @@ def run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size,
 
     mlflow.log_params({"output_folder":model_folder,
                     "model_path": checkpoint_path})
-    # Log model to MLflow
-    mlflow.pytorch.log_model(ddpm.model, "model")
+    # Log model to MLflow with signature
+    import torch
+    example_input = torch.randn(1, channels, image_size, image_size).to(device)
+    example_timestep = torch.randint(0, ddpm.timesteps, (1,), device=device).long()
+    
+    mlflow.pytorch.log_model(
+        ddpm.model, 
+        name="model",
+        signature=mlflow.models.infer_signature(
+            model_input=(example_input, example_timestep),
+            model_output=ddpm.model(example_input, example_timestep)
+        ),
+        input_example=(example_input.cpu(), example_timestep.cpu())
+    )
     mlflow.log_artifact(checkpoint_path, "checkpoints")
     
     # Generate and log sample images
