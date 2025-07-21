@@ -18,10 +18,10 @@
 # %% [markdown]
 # # Create dataset
 # create calibration datasets, requires flu_dataset_explorerNB to have run
-to send them on longleaf:
-```bash
-scp -r training_datasets/*.nc chadi@longleaf.unc.edu:/users/c/h/chadi/influpaint/training_datasets
-```
+# to send them on longleaf:
+# ```bash
+# scp -r training_datasets/*.nc chadi@longleaf.unc.edu:/users/c/h/chadi/influpaint/training_datasets
+# ```
 
 
 # %%
@@ -74,6 +74,25 @@ def build_dataset_from_framelist(frame_list):
                     dims=["sample", "feature", "season_week", "place"])
     return flu_payload_array, main_origins
 
+
+# %%
+import numpy as np
+output = np.load('inverse_transformed_samples.npy')
+full_payload_array = season_setup.add_axis_to_numpy_array(output, truncate=True)
+
+# %%
+full_payload_array
+
+# %%
+idx_tp = 50
+fig, ax = idplots.plot_us_grid(
+    data=full_payload_array,
+    season_axis=season_setup,
+    sample_idx=list(np.arange(idx_tp, idx_tp+5)),
+    multi_line=True,
+    sharey=False,
+    past_ground_truth=True,
+)
 
 # %%
 all_datasets_df = pd.read_parquet("Flusight/flu-datasets/all_datasets.parquet")
@@ -177,6 +196,7 @@ fig, ax = idplots.plot_us_grid(
       sample_idx=list(np.arange(13)),
       multi_line=True,
       sharey=False,
+      past_ground_truth=True,
 
   )
 
