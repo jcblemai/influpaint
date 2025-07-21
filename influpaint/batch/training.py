@@ -77,7 +77,7 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run training
-        run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size, epochs, device, outdir)
+        run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size, epochs, device, model_folder)
         
         print(f"Training completed for scenario {scn_id}")
 
@@ -206,7 +206,6 @@ def log_loss_plots_to_mlflow(losses):
 def log_samples_as_artifacts(samples, dataset, scenario_string, model_folder):
     """Log generated samples as artifacts in multiple formats"""
     import numpy as np
-    import tempfile
     import os
     
     raw_samples_path = os.path.join(model_folder, "raw_samples.npy")
@@ -234,24 +233,6 @@ def log_samples_as_artifacts(samples, dataset, scenario_string, model_folder):
     plt.savefig(f"{model_folder}/us_map_{scenario_string}.png", bbox_inches='tight', dpi=300)
     mlflow.log_figure(fig, "sample_us_map.png")
 
-
-    
-    # 3. Log sample metadata
-    metadata_path = os.path.join(temp_dir, "sample_metadata.txt")
-    with open(metadata_path, 'w') as f:
-        f.write(f"Scenario: {scenario_string}\n")
-        f.write(f"Number of samples: {samples[-1].shape[0]}\n")
-        f.write(f"Sample shape: {samples[-1].shape}\n")
-        f.write(f"Sample min: {samples[-1].min():.6f}\n")
-        f.write(f"Sample max: {samples[-1].max():.6f}\n")
-        f.write(f"Sample mean: {samples[-1].mean():.6f}\n")
-        f.write(f"Sample std: {samples[-1].std():.6f}\n")
-        f.write(f"Inverse transformed samples shape: {inv_samples.shape}\n")
-        f.write(f"Inverse transformed min: {inv_samples.min():.6f}\n")
-        f.write(f"Inverse transformed max: {inv_samples.max():.6f}\n")
-        f.write(f"Inverse transformed mean: {inv_samples.mean():.6f}\n")
-    mlflow.log_artifact(metadata_path, "samples")
-    
     # 4. Log sample statistics as metrics
     mlflow.log_metrics({
         "sample_count": samples[-1].shape[0],
