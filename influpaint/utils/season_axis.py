@@ -6,16 +6,17 @@ from typing import Union
 # locations, in the right order
 class SeasonAxis:
     """ 
-    A SeasonAxis object manages locations and flu season temporal coordinates.
+    A SeasonAxis object manages locations and flu season temporal coordinates. Allow
+    to convert from array to dataframe, or to plot array.
     
-    This class serves two distinct purposes:
+    This class serves two related purposes:
     
     1. **Abstract Temporal Coordinates (for arrays/training)**:
         - get_season_week(): Maps dates to season week numbers (1-53)
         - Provides consistent temporal alignment across flu seasons
         - Used for creating arrays, training models, seasonal overlays
     
-    2. **Concrete Calendar Mapping (for forecasting)**:
+    2. **Calendar Mapping (for forecasting)**:
         - get_week_dates(): Returns actual date ranges for specific weeks/years
         - week_to_saturday(): Maps season weeks to specific Saturday dates  
         - get_season_calendar(): Full calendar for a specific flu season year
