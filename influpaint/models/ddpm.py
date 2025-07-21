@@ -174,7 +174,7 @@ class DDPM:
 
                 loss = self.p_losses(
                     denoise_model=self.model, x_start=batch, t=t, loss_type=self.loss_type
-                )  # loss_type="l2")#
+                )
 
                 loss_value = loss.item()
                 losses.append(loss_value)
@@ -228,12 +228,13 @@ class DDPM:
                         nrow=6,
                     )
 
+            epoch_avg_loss = sum(epoch_losses) / len(epoch_losses)
+            print(f"Epoch {epoch} completed - Avg Loss: {epoch_avg_loss:.6f}")
+
             if mlflow_logging:
                 import mlflow
-                epoch_avg_loss = sum(epoch_losses) / len(epoch_losses)
                 mlflow.log_metric("epoch_loss", epoch_avg_loss, step=epoch)
-                print(f"Epoch {epoch} completed - Avg Loss: {epoch_avg_loss:.6f}")
-
+            
             # scheduler1.step()
         
         return losses

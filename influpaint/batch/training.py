@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Training script for diffusion models using the epiframework.
+Training script for diffusion models using the scenarios and config created.
 
 Usage:
     python train.py -s 5 -e "my_training_experiment" -d "/path/to/output"
@@ -27,10 +27,10 @@ season_setup = None  # This needs to be set based on your specific setup
 @click.command()
 @click.option("-s", "--scn_id", "scn_id", required=True, type=int, help="ID of the scenario to train")
 @click.option("-e", "--experiment_name", "experiment_name", envvar="experiment_name", type=str, required=True,
-              help="MLflow experiment name")
+            help="MLflow experiment name")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, 
-              default='/users/c/h/chadi/influpaint_res/', show_default=True, 
-              help="Where to write model checkpoints")
+            default='/users/c/h/chadi/influpaint_res/', show_default=True, 
+            help="Where to write model checkpoints")
 @click.option("--image_size", default=64, type=int, help="Image size")
 @click.option("--channels", default=1, type=int, help="Number of channels")
 @click.option("--batch_size", default=512, type=int, help="Batch size")
@@ -87,6 +87,7 @@ def run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size,
     # Create output directory
     model_folder = f"{outdir}{get_git_revision_short_hash()}_{datetime.date.today()}"
     create_folders(model_folder)
+    mlflow.log_param("output_folder", model_folder)
     
     model_id = scenario_spec.scenario_string
     print(f">>> Training {model_id}")
@@ -106,7 +107,9 @@ def run_training(scenario_spec, ddpm, dataset, image_size, channels, batch_size,
     checkpoint_path = f"{model_folder}/{model_id}::{epochs}.pth"
     ddpm.write_train_checkpoint(save_path=checkpoint_path)
     print(f">>> Model saved to {checkpoint_path}")
-    
+
+    mlflow.log_params({"output_folder":model_folder,
+                    "model_path": checkpoint_path})
     # Log model to MLflow
     mlflow.pytorch.log_model(ddpm.model, "model")
     mlflow.log_artifact(checkpoint_path, "checkpoints")
@@ -210,7 +213,7 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
     with tempfile.TemporaryDirectory() as temp_dir:
         # 1. Log raw samples as numpy array
         raw_samples_path = os.path.join(temp_dir, "raw_samples.npy")
-        np.save(raw_samples_path, samples[-1].cpu().numpy())
+        np.save(raw_samples_path, samples[-1])
         mlflow.log_artifact(raw_samples_path, "samples")
         
         # 2. Log inverse-transformed samples (original scale) 
@@ -218,7 +221,7 @@ def log_samples_as_artifacts(samples, dataset, scenario_string):
         inv_samples = []
         for i in range(min(samples[-1].shape[0], 100)):  # Log first 100 samples
             inv_sample = dataset.apply_transform_inv(samples[-1][i])
-            inv_samples.append(inv_sample.cpu().numpy())
+            inv_samples.append(inv_sample)
         np.save(inv_samples_path, np.array(inv_samples))
         mlflow.log_artifact(inv_samples_path, "samples")
         
