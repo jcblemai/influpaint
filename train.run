@@ -3,7 +3,7 @@
 #SBATCH -n 1
 #SBATCH -p l40-gpu
 #SBATCH --mem=32G
-#SBATCH -t 00-06:00:00
+#SBATCH -t 00-12:00:00
 #SBATCH --array=812
 #SBATCH --gres=gpu:1
 #SBATCH --qos=gpu_access
@@ -11,7 +11,7 @@
 module purge
 
 # *** CHANGE THIS FOR EACH EXPERIMENT ***
-EXPERIMENT_NAME="paper-2025-07-18"
+EXPERIMENT_NAME="paper-2025-07-22"
 
 echo "Training scenario ${SLURM_ARRAY_TASK_ID} for experiment ${EXPERIMENT_NAME}_training"
 

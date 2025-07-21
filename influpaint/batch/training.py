@@ -215,7 +215,7 @@ def log_samples_as_artifacts(samples, dataset, scenario_string, model_folder):
     # 2. Log inverse-transformed samples (original scale) 
     inv_samples_path = os.path.join(model_folder, "inverse_transformed_samples.npy")
     inv_samples = []
-    for i in samples[-1].shape[0]:
+    for i in range(samples[-1].shape[0]):
         inv_sample = dataset.apply_transform_inv(samples[-1][i])
         inv_samples.append(inv_sample)
     inv_samples = np.array(inv_samples)
