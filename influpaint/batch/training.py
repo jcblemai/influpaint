@@ -48,7 +48,7 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
     # Set up MLflow
     mlflow.set_experiment(experiment_name)
     
-    with mlflow.start_run(run_name=f"train_scenario_{scn_id}"):
+    with mlflow.start_run(run_name=f"train_{scn_id}"):
         # Log scenario and run parameters
         mlflow.log_params({
             "scenario_id": scn_id,
