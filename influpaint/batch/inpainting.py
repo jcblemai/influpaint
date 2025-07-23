@@ -68,7 +68,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     # Set up MLflow
     mlflow.set_experiment(experiment_name)
     
-    with mlflow.start_run(run_name=f"inpaint_scenario_{scn_id}"):
+    with mlflow.start_run(run_name=f"inpaint_{scn_id}_{config_name}_{forecast_date}"):
         # Log scenario and run parameters
         params = {
             "scenario_id": scn_id,
@@ -99,7 +99,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         print("Creating model, dataset, and transforms...")
         from .scenarios import create_scenario_objects
         ddpm, dataset, transform, enrich, scaling_per_channel, data_mean, data_sd = create_scenario_objects(
-            scenario_spec, season_setup, image_size, channels, batch_size, 800, device
+            scenario_spec, season_setup, image_size, channels, batch_size, 1s, device
         )
         
         # Load trained model
@@ -110,6 +110,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("scaling_per_channel", scaling_per_channel.tolist())
         mlflow.log_param("data_mean", float(data_mean))
         mlflow.log_param("data_std", float(data_sd))
+        mlflow.log_param("dataset_size", len(dataset))
         
         # Run inpainting
         run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
@@ -122,31 +123,28 @@ def load_model(ddpm, run_id=None, model_path=None):
     if run_id:
         try:
             # Load model from MLflow run
-            model_uri = f"runs:/{run_id}/model"
-            print(f"Loading PyTorch model from MLflow: {model_uri}")
-            loaded_model = mlflow.pytorch.load_model(model_uri)
+            # model_uri = f"runs:/{run_id}/model"
+            # print(f"Loading PyTorch model from MLflow: {model_uri}")
+            # loaded_model = mlflow.pytorch.load_model(model_uri)
+            # 
+            # # Replace the model in ddpm
+            # ddpm.model = loaded_model
             
-            # Replace the model in ddpm
-            ddpm.model = loaded_model
-            
-            # Also try to load checkpoint for additional state
-            try:
-                checkpoint_path = mlflow.artifacts.download_artifacts(
-                    run_id=run_id,
-                    artifact_path="checkpoints"
-                )
-                # Find .pth file in downloaded artifacts
-                import os
-                for file in os.listdir(checkpoint_path):
-                    if file.endswith('.pth'):
-                        full_checkpoint_path = os.path.join(checkpoint_path, file)
-                        print(f"Loading additional checkpoint state from: {full_checkpoint_path}")
-                        ddpm.load_model_checkpoint(full_checkpoint_path)
-                        break
-            except Exception as e:
-                print(f"Warning: Could not load checkpoint artifacts: {e}")
-                print("Continuing with PyTorch model only...")
-            
+            # Instead try to load checkpoint from pth file instead of mlflow
+            # model for additional state
+            checkpoint_path = mlflow.artifacts.download_artifacts(
+                run_id=run_id,
+                artifact_path="checkpoints"
+            )
+            # Find .pth file in downloaded artifacts
+            import os
+            for file in os.listdir(checkpoint_path):
+                if file.endswith('.pth'):
+                    full_checkpoint_path = os.path.join(checkpoint_path, file)
+                    print(f"Loading additional checkpoint state from: {full_checkpoint_path}")
+                    ddpm.load_model_checkpoint(full_checkpoint_path)
+                    break
+        
             return f"mlflow_run:{run_id}"
             
         except Exception as e:
