@@ -27,8 +27,9 @@ sys.path.append('CoPaint4influpaint')
 from guided_diffusion import O_DDIMSampler
 
 
-# Need to initialize season_setup - this might need to be passed from elsewhere
-season_setup = None  # This needs to be set based on your specific setup
+from influpaint.utils import SeasonAxis
+
+season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 
 
 @click.command()
@@ -72,6 +73,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         params = {
             "scenario_id": scn_id,
             "ddpm_name": scenario_spec.ddpm_name,
+            "unet_name": scenario_spec.unet_name,
             "dataset_name": scenario_spec.dataset_name,
             "transform_name": scenario_spec.transform_name,
             "enrich_name": scenario_spec.enrich_name,

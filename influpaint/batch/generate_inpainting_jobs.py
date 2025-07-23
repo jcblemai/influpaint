@@ -14,81 +14,150 @@ Usage:
 import click
 import pandas as pd
 from pathlib import Path
-from .scenarios import get_all_training_scenarios
+import mlflow
+from mlflow.tracking import MlflowClient
+
+
+def get_finished_models(experiment_name):
+    """Get all finished training runs from MLflow experiment"""
+    client = MlflowClient()
+    
+    try:
+        # Get experiment
+        experiment = client.get_experiment_by_name(experiment_name)
+        if experiment is None:
+            print(f"ERROR: Experiment '{experiment_name}' not found")
+            return []
+        
+        # Search for all finished runs
+        runs = client.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="attributes.status = 'FINISHED'",
+            order_by=["start_time DESC"]
+        )
+        
+        finished_models = []
+        for run in runs:
+            params = run.data.params
+            finished_models.append({
+                'run_id': run.info.run_id,
+                'scenario_id': int(params['scenario_id']),
+                'scenario_string': params.get('scenario_string', 'unknown'),
+                'start_time': run.info.start_time
+            })
+        
+        # Sort by scenario_id for consistent ordering
+        finished_models.sort(key=lambda x: x['scenario_id'])
+        
+        return finished_models
+        
+    except Exception as e:
+        print(f"ERROR querying MLflow: {e}")
+        return []
+
 
 
 @click.command()
-@click.option("-e", "--experiment_name", required=True, help="Base experiment name (e.g. 'paper-2025-06')")
-@click.option("--scenarios", default="0-31", help="Scenario range (e.g. '0-31' or '5,8,12')")
-@click.option("--start_date", default="2022-10-12", help="Start date (YYYY-MM-DD)")
-@click.option("--end_date", default="2023-05-15", help="End date (YYYY-MM-DD)")
-@click.option("--freq", default="2W-MON", help="Date frequency")
-@click.option("--configs", default="celebahq_try1,celebahq_try3,celebahq", help="Comma-separated config names")
+@click.option("-e", "--experiment_name", required=True, help="MLflow training experiment name (e.g. 'paper-2025-06_training')")
+@click.option("--configs", default=None, help="Comma-separated config names (default: all available configs)")
 @click.option("--output_dir", default=".", help="Where to write job files")
-def main(experiment_name, scenarios, start_date, end_date, freq, configs, output_dir):
-    """Generate SLURM job files for parallel inpainting across all scenarios"""
+def main(experiment_name, configs, output_dir):
+    """Generate SLURM job files for inpainting all finished models from MLflow experiment on last 2 flu seasons"""
     
-    # Parse scenarios
-    if '-' in scenarios:
-        start_scn, end_scn = map(int, scenarios.split('-'))
-        scenario_ids = list(range(start_scn, end_scn + 1))
-    else:
-        scenario_ids = [int(s.strip()) for s in scenarios.split(',')]
+    # Get finished models from MLflow
+    print(f"Querying MLflow experiment: {experiment_name}")
+    finished_models = get_finished_models(experiment_name)
     
-    # Parse inputs
-    forecast_dates = pd.date_range(start_date, end_date, freq=freq)
+    if not finished_models:
+        print(f"No finished models found in experiment '{experiment_name}'")
+        return
+    
+    print(f"Found {len(finished_models)} finished models")
+    
+    # Define last 2 flu seasons for scoring
+    # 2022-2023 season: 2022-10-01 to 2023-05-31
+    # 2023-2024 season: 2023-10-01 to 2024-05-31
+    flu_seasons = [
+        {
+            'name': '2022-2023',
+            'start': '2022-10-01', 
+            'end': '2023-05-31',
+            'freq': 'W-SAT'  # Weekly on Saturdays (FluSight standard)
+        },
+        {
+            'name': '2023-2024', 
+            'start': '2023-10-01',
+            'end': '2024-05-31', 
+            'freq': 'W-SAT'
+        }
+    ]
+    
+    # Use all available configs if none specified
+    if configs is None:
+        from .config import AVAILABLE_COPAINT_CONFIGS
+        configs = ",".join(AVAILABLE_COPAINT_CONFIGS)
+        print(f"Using all available configs: {configs}")
+    
     config_names = [c.strip() for c in configs.split(",")]
     
-    print(f"Experiment: {experiment_name}")
-    print(f"Scenarios: {len(scenario_ids)} ({min(scenario_ids)}-{max(scenario_ids)})")
-    print(f"Dates: {len(forecast_dates)} ({start_date} to {end_date})")
-    print(f"Configs: {len(config_names)} ({config_names})")
+    print(f"Flu seasons: {[s['name'] for s in flu_seasons]}")
+    print(f"Configs: {config_names}")
     
-    # Generate all combinations: scenario × date × config
+    # Generate all combinations: model × season × date × config
     jobs = []
     job_id = 0
     
-    for scenario_id in scenario_ids:
-        for date in forecast_dates:
-            for config_name in config_names:
-                jobs.append({
-                    'job_id': job_id,
-                    'scenario_id': scenario_id,
-                    'date': date.strftime('%Y-%m-%d'),
-                    'config': config_name
-                })
-                job_id += 1
+    for model in finished_models:
+        scenario_id = model['scenario_id']
+        run_id = model['run_id']
+        
+        for season in flu_seasons:
+            forecast_dates = pd.date_range(season['start'], season['end'], freq=season['freq'])
+            
+            for date in forecast_dates:
+                for config_name in config_names:
+                    jobs.append({
+                        'job_id': job_id,
+                        'scenario_id': scenario_id,
+                        'run_id': run_id,
+                        'season': season['name'],
+                        'date': date.strftime('%Y-%m-%d'),
+                        'config': config_name
+                    })
+                    job_id += 1
     
-    print(f"Total jobs: {len(jobs)} = {len(scenario_ids)} scenarios × {len(forecast_dates)} dates × {len(config_names)} configs")
+    print(f"Total jobs: {len(jobs)} = {len(finished_models)} models × {len(flu_seasons)} seasons × ~{len(forecast_dates)} dates × {len(config_names)} configs")
     
-    # Write job list
+    # Write job list with run_id included
     output_path = Path(output_dir)
-    job_list_file = output_path / f"inpaint_jobs_{experiment_name}_all_scenarios.txt"
+    experiment_basename = experiment_name.replace('_training', '')
+    job_list_file = output_path / f"inpaint_jobs_{experiment_basename}.txt"
     
     with open(job_list_file, 'w') as f:
-        f.write("job_id,scenario_id,date,config\n")
+        f.write("job_id,scenario_id,run_id,season,date,config\n")
         for job in jobs:
-            f.write(f"{job['job_id']},{job['scenario_id']},{job['date']},{job['config']}\n")
+            f.write(f"{job['job_id']},{job['scenario_id']},{job['run_id']},{job['season']},{job['date']},{job['config']}\n")
     
     print(f"Job list written to: {job_list_file}")
     
     # Generate SLURM script
+    inpaint_exp = f"{experiment_basename}_inpainting"
+    
     slurm_script = f"""#!/bin/bash
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --qos gpu_access
 #SBATCH -p a100-gpu,l40-gpu
 #SBATCH --mem=32G
-#SBATCH -t 00-04:00:00
+#SBATCH -t 00-02:00:00
 #SBATCH --array=0-{len(jobs)-1}
 #SBATCH --gres=gpu:1
 
 module purge
 
 # Experiment configuration
-EXPERIMENT_NAME="{experiment_name}"
-TRAINING_EXP="${{EXPERIMENT_NAME}}_training"
-INPAINT_EXP="${{EXPERIMENT_NAME}}_inpainting"
+TRAINING_EXP="{experiment_name}"
+INPAINT_EXP="{inpaint_exp}"
 JOB_LIST="{job_list_file}"
 
 echo "Inpainting job ${{SLURM_ARRAY_TASK_ID}}"
@@ -96,36 +165,26 @@ echo "Inpainting job ${{SLURM_ARRAY_TASK_ID}}"
 # Get job parameters from job list
 JOB_LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 2))p" $JOB_LIST)  # +2 to skip header
 SCENARIO_ID=$(echo $JOB_LINE | cut -d',' -f2)
-DATE=$(echo $JOB_LINE | cut -d',' -f3)
-CONFIG=$(echo $JOB_LINE | cut -d',' -f4)
+RUN_ID=$(echo $JOB_LINE | cut -d',' -f3)
+SEASON=$(echo $JOB_LINE | cut -d',' -f4)
+DATE=$(echo $JOB_LINE | cut -d',' -f5)
+CONFIG=$(echo $JOB_LINE | cut -d',' -f6)
 
-echo "Scenario: ${{SCENARIO_ID}}, Date: ${{DATE}}, Config: ${{CONFIG}}"
+echo "Scenario: ${{SCENARIO_ID}}, Run: ${{RUN_ID}}, Season: ${{SEASON}}, Date: ${{DATE}}, Config: ${{CONFIG}}"
 
-# Get the MLflow run ID for this scenario
-RUN_ID=$(/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python influpaint/batch/mlflow_utils.py \\
-    -e "${{TRAINING_EXP}}" \\
-    -s ${{SCENARIO_ID}})
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: No trained model found for scenario ${{SCENARIO_ID}} in ${{TRAINING_EXP}}"
-    exit 1
-fi
-
-echo "Found trained model: ${{RUN_ID}}"
-
-# Run atomic inpainting
+# Run atomic inpainting with known run_id
 /nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/inpainting.py \\
     -s ${{SCENARIO_ID}} \\
     -r "${{RUN_ID}}" \\
     -e "${{INPAINT_EXP}}" \\
     --forecast_date "${{DATE}}" \\
     --config_name "${{CONFIG}}" \\
-    > out_inpaint_s${{SCENARIO_ID}}_${{DATE}}_${{CONFIG}}.out 2>&1
+    > out_inpaint_s${{SCENARIO_ID}}_${{SEASON}}_${{DATE}}_${{CONFIG}}.out 2>&1
 
-echo "Completed: Scenario ${{SCENARIO_ID}}, Date ${{DATE}}, Config ${{CONFIG}}"
+echo "Completed: Scenario ${{SCENARIO_ID}}, Season ${{SEASON}}, Date ${{DATE}}, Config ${{CONFIG}}"
 """
     
-    slurm_file = output_path / f"inpaint_array_{experiment_name}_all_scenarios.run"
+    slurm_file = output_path / f"inpaint_array_{experiment_basename}.run"
     with open(slurm_file, 'w') as f:
         f.write(slurm_script)
     
@@ -139,10 +198,16 @@ echo "Completed: Scenario ${{SCENARIO_ID}}, Date ${{DATE}}, Config ${{CONFIG}}"
     print()
     print("To monitor:")
     print(f"  squeue -u $USER")
-    print(f"  ls out_inpaint_s*_*.out")
+    print(f"  ls out_inpaint_s*_*_*_*.out")
     print()
-    print(f"Expected output files: out_inpaint_s<SCENARIO>_<DATE>_<CONFIG>.out")
-    print(f"Example: out_inpaint_s5_2022-11-14_celebahq_try1.out")
+    print(f"Expected output files: out_inpaint_s<SCENARIO>_<SEASON>_<DATE>_<CONFIG>.out")
+    print(f"Example: out_inpaint_s5_2022-2023_2022-11-14_celebahq_try1.out")
+    print()
+    print("Model summary:")
+    for model in finished_models[:5]:  # Show first 5
+        print(f"  Scenario {model['scenario_id']}: {model['scenario_string']} (run: {model['run_id'][:8]}...)")
+    if len(finished_models) > 5:
+        print(f"  ... and {len(finished_models) - 5} more models")
 
 
 if __name__ == '__main__':
