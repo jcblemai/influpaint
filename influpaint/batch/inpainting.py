@@ -203,7 +203,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
     )
     
     # Prepare ground truth tensors
-    gt = dataset.apply_transform(gt1.gt_xarr.data)
+    gt = dataset.apply_transform(np.nan_to_num(gt1.gt_xarr.data, nan=0.0))
     gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(device)
     gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
     
