@@ -56,12 +56,55 @@ def get_finished_models(experiment_name):
         return []
 
 
+def filter_completed_jobs(jobs, training_experiment_name):
+    """Filter out jobs that already completed successfully in the inpainting experiment"""
+    client = MlflowClient()
+    
+    # Get inpainting experiment name
+    inpainting_experiment_name = training_experiment_name.replace('_training', '_inpainting')
+    
+    # Get inpainting experiment
+    experiment = client.get_experiment_by_name(inpainting_experiment_name)
+    if experiment is None:
+        print(f"No inpainting experiment '{inpainting_experiment_name}' found - keeping all jobs")
+        return jobs
+    
+    # Get all successful inpainting runs
+    completed_runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string="attributes.status = 'FINISHED'",
+        order_by=["start_time DESC"]
+    )
+    
+    # Build set of completed (scenario_id, forecast_date, config_name) combinations
+    completed_jobs = set()
+    for run in completed_runs:
+        params = run.data.params
+        if all(key in params for key in ['scenario_id', 'forecast_date', 'config_name']):
+            completed_jobs.add((
+                int(params['scenario_id']),
+                params['forecast_date'], 
+                params['config_name']
+            ))
+    
+    print(f"Found {len(completed_jobs)} completed inpainting jobs in '{inpainting_experiment_name}'")
+    
+    # Filter out completed jobs
+    remaining_jobs = []
+    for job in jobs:
+        job_key = (job['scenario_id'], job['date'], job['config'])
+        if job_key not in completed_jobs:
+            remaining_jobs.append(job)
+    
+    return remaining_jobs
+
 
 @click.command()
 @click.option("-e", "--experiment_name", required=True, help="MLflow training experiment name (e.g. 'paper-2025-06_training')")
 @click.option("--configs", default=None, help="Comma-separated config names (default: all available configs)")
 @click.option("--output_dir", default=".", help="Where to write job files")
-def main(experiment_name, configs, output_dir):
+@click.option("--skip_completed", is_flag=True, help="Skip jobs that already completed successfully in inpainting experiment")
+def main(experiment_name, configs, output_dir, skip_completed):
     """Generate SLURM job files for inpainting all finished models from MLflow experiment on last 2 flu seasons"""
     
     # Get finished models from MLflow
@@ -131,6 +174,15 @@ def main(experiment_name, configs, output_dir):
                     job_id += 1
     
     print(f"Total jobs: {len(jobs)} = {len(finished_models)} models × {len(flu_seasons)} seasons × ~{len(forecast_dates)} dates × {len(config_names)} configs")
+    
+    # Filter out completed jobs if requested
+    if skip_completed:
+        jobs = filter_completed_jobs(jobs, experiment_name)
+        print(f"After filtering completed jobs: {len(jobs)} remaining")
+        
+        if not jobs:
+            print("No jobs remaining after filtering - all appear to be completed!")
+            return
     
     # Write job list with run_id included
     output_path = Path(output_dir)
