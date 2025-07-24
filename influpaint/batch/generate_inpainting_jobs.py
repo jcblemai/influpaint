@@ -74,20 +74,24 @@ def main(experiment_name, configs, output_dir):
     
     print(f"Found {len(finished_models)} finished models")
     
-    # Define last 2 flu seasons for scoring
-    # 2022-2023 season: 2022-10-01 to 2023-05-31
-    # 2023-2024 season: 2023-10-01 to 2024-05-31
+    # Define 3 flu seasons for scoring
     flu_seasons = [
         {
             'name': '2022-2023',
-            'start': '2022-10-01', 
-            'end': '2023-05-31',
-            'freq': 'W-SAT'  # Weekly on Saturdays (FluSight standard)
+            'start': '2022-10-17', 
+            'end': '2023-05-15',
+            'freq': 'W-SAT'
         },
         {
             'name': '2023-2024', 
-            'start': '2023-10-01',
-            'end': '2024-05-31', 
+            'start': '2023-10-14',
+            'end': '2024-05-04', 
+            'freq': 'W-SAT'
+        },
+        {
+            'name': '2024-2025', 
+            'start': '2024-11-23',
+            'end': '2025-05-31', 
             'freq': 'W-SAT'
         }
     ]
@@ -147,9 +151,9 @@ def main(experiment_name, configs, output_dir):
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --qos gpu_access
-#SBATCH -p a100-gpu,l40-gpu
+#SBATCH -p a100-gpu,l40-gpu,volta-gpu
 #SBATCH --mem=32G
-#SBATCH -t 00-02:00:00
+#SBATCH -t 00-04:00:00
 #SBATCH --array=0-{len(jobs)-1}
 #SBATCH --gres=gpu:1
 
