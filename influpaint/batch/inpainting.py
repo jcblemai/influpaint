@@ -14,21 +14,23 @@ Usage:
 import datetime
 import sys
 import click
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import mlflow
 
 from .scenarios import get_training_scenario
-from .config import copaint_config_library, create_folders
+from .config import copaint_config_library, create_folders, get_git_revision_short_hash
 import ground_truth
 
 sys.path.append('CoPaint4influpaint')
 from guided_diffusion import O_DDIMSampler
 
 
-# Need to initialize season_setup - this might need to be passed from elsewhere
-season_setup = None  # This needs to be set based on your specific setup
+from influpaint.utils import SeasonAxis
+
+season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 
 
 @click.command()
@@ -36,7 +38,7 @@ season_setup = None  # This needs to be set based on your specific setup
 @click.option("-r", "--run_id", "run_id", type=str, help="MLflow run ID of the training run to use")
 @click.option("-m", "--model_path", "model_path", type=str, help="Path to model checkpoint (.pth file) - alternative to --run_id")
 @click.option("-e", "--experiment_name", "experiment_name", envvar="experiment_name", type=str, required=True,
-              help="MLflow experiment name")
+              help="MLflow experiment name (e.g. 'paper-2025-06_inpainting')")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, 
               default='/users/c/h/chadi/influpaint_res/', show_default=True,
               help="Where to write forecast results")
@@ -51,7 +53,6 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     # Validate inputs
     if not run_id and not model_path:
         raise click.ClickException("Must provide either --run_id (MLflow) or --model_path (filesystem)")
-    
     if run_id and model_path:
         raise click.ClickException("Cannot provide both --run_id and --model_path. Choose one.")
     
@@ -64,14 +65,18 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     print(f"Forecast date: {forecast_date}")
     print(f"Config: {config_name}")
     
-    # Set up MLflow
+    # Experiment setup  
+    # Create output directory structure with experiment name
+    output_folder = f"{outdir}{get_git_revision_short_hash()}_{experiment_name}_{datetime.date.today()}"
+    create_folders(output_folder)
     mlflow.set_experiment(experiment_name)
     
-    with mlflow.start_run(run_name=f"inpaint_scenario_{scn_id}"):
+    with mlflow.start_run(run_name=f"inpaint_{scn_id}_{config_name}_{forecast_date}"):
         # Log scenario and run parameters
         params = {
             "scenario_id": scn_id,
             "ddpm_name": scenario_spec.ddpm_name,
+            "unet_name": scenario_spec.unet_name,
             "dataset_name": scenario_spec.dataset_name,
             "transform_name": scenario_spec.transform_name,
             "enrich_name": scenario_spec.enrich_name,
@@ -97,7 +102,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         print("Creating model, dataset, and transforms...")
         from .scenarios import create_scenario_objects
         ddpm, dataset, transform, enrich, scaling_per_channel, data_mean, data_sd = create_scenario_objects(
-            scenario_spec, season_setup, image_size, channels, batch_size, 800, device
+            scenario_spec, season_setup, image_size, channels, batch_size, 1s, device
         )
         
         # Load trained model
@@ -108,43 +113,42 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("scaling_per_channel", scaling_per_channel.tolist())
         mlflow.log_param("data_mean", float(data_mean))
         mlflow.log_param("data_std", float(data_sd))
+        mlflow.log_param("dataset_size", len(dataset))
         
         # Run inpainting
-        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
+        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name, experiment_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 
 
 def load_model(ddpm, run_id=None, model_path=None):
-    """Load model from MLflow or filesystem"""
+    """Load model from MLflow or filesystem. Note that mlflow run_id are unique and thus
+    we don't need to know the training run experiment name here."""
     if run_id:
         try:
             # Load model from MLflow run
-            model_uri = f"runs:/{run_id}/model"
-            print(f"Loading PyTorch model from MLflow: {model_uri}")
-            loaded_model = mlflow.pytorch.load_model(model_uri)
+            # model_uri = f"runs:/{run_id}/model"
+            # print(f"Loading PyTorch model from MLflow: {model_uri}")
+            # loaded_model = mlflow.pytorch.load_model(model_uri)
+            # 
+            # # Replace the model in ddpm
+            # ddpm.model = loaded_model
             
-            # Replace the model in ddpm
-            ddpm.model = loaded_model
-            
-            # Also try to load checkpoint for additional state
-            try:
-                checkpoint_path = mlflow.artifacts.download_artifacts(
-                    run_id=run_id,
-                    artifact_path="checkpoints"
-                )
-                # Find .pth file in downloaded artifacts
-                import os
-                for file in os.listdir(checkpoint_path):
-                    if file.endswith('.pth'):
-                        full_checkpoint_path = os.path.join(checkpoint_path, file)
-                        print(f"Loading additional checkpoint state from: {full_checkpoint_path}")
-                        ddpm.load_model_checkpoint(full_checkpoint_path)
-                        break
-            except Exception as e:
-                print(f"Warning: Could not load checkpoint artifacts: {e}")
-                print("Continuing with PyTorch model only...")
-            
+            # Instead try to load checkpoint from pth file instead of mlflow
+            # model for additional state
+            checkpoint_path = mlflow.artifacts.download_artifacts(
+                run_id=run_id,
+                artifact_path="checkpoints"
+            )
+            # Find .pth file in downloaded artifacts
+            import os
+            for file in os.listdir(checkpoint_path):
+                if file.endswith('.pth'):
+                    full_checkpoint_path = os.path.join(checkpoint_path, file)
+                    print(f"Loading additional checkpoint state from: {full_checkpoint_path}")
+                    ddpm.load_model_checkpoint(full_checkpoint_path)
+                    break
+        
             return f"mlflow_run:{run_id}"
             
         except Exception as e:
@@ -162,7 +166,7 @@ def load_model(ddpm, run_id=None, model_path=None):
         raise ValueError("Must provide either run_id or model_path")
 
 
-def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name):
+def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, output_folder, forecast_date, config_name):
     """Run inpainting for a single scenario, date, and config"""
     model_id = scenario_spec.scenario_string
     print(f">>> Running inpainting for {model_id}")
@@ -182,15 +186,15 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
     
     conf = available_configs[config_name]
     
-    # Create output directory structure
-    output_folder = f"{outdir}/forecasts_{datetime.date.today()}"
-    create_folders(output_folder)
-    
     print(f">>> Creating ground truth for {forecast_dt.date()}")
+    
+    # Determine flu season year dynamically based on forecast date
+    season_first_year = str(season_setup.get_fluseason_year(forecast_dt))
+    print(f">>> Detected flu season year: {season_first_year}")
     
     # Create ground truth for this date
     gt1 = ground_truth.GroundTruth(
-        season_first_year="2022",
+        season_first_year=season_first_year,
         data_date=datetime.datetime.today(),
         mask_date=forecast_dt,
         channels=channels,
@@ -199,7 +203,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
     )
     
     # Prepare ground truth tensors
-    gt = dataset.apply_transform(gt1.gt_xarr.data)
+    gt = dataset.apply_transform(np.nan_to_num(gt1.gt_xarr.data, nan=0.0))
     gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(device)
     gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
     
@@ -238,6 +242,9 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
         inpaint_folder = f"{output_folder}/{forecast_fn}"
         create_folders(inpaint_folder)
         
+        # Log forecast artifacts to MLflow and filesystem  
+        log_forecast_artifacts(fluforecasts, fluforecasts_ti, forecasts_national, inpaint_folder)
+        
         gt1.export_forecasts(
             fluforecasts_ti=fluforecasts_ti,
             forecasts_national=forecasts_national,
@@ -268,6 +275,23 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
         print(f">>> {error_msg}")
         mlflow.log_param("error", error_msg)
         raise
+
+
+def log_forecast_artifacts(fluforecasts, fluforecasts_ti, forecasts_national, inpaint_folder):
+    """Log forecast results as MLflow artifacts"""
+    import os
+    
+    # Save and log raw forecasts
+    fluforecasts_path = os.path.join(inpaint_folder, "fluforecasts.npy")
+    np.save(fluforecasts_path, fluforecasts)
+    mlflow.log_artifact(fluforecasts_path, "forecasts")
+    
+    # Save and log inverse-transformed forecasts  
+    fluforecasts_ti_path = os.path.join(inpaint_folder, "fluforecasts_ti.npy")
+    np.save(fluforecasts_ti_path, fluforecasts_ti)
+    mlflow.log_artifact(fluforecasts_ti_path, "forecasts")
+    
+    print(f">>> Logged forecast artifacts: {fluforecasts.shape[0]} samples")
 
 
 if __name__ == '__main__':

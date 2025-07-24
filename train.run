@@ -18,6 +18,6 @@ echo "Training scenario ${SLURM_ARRAY_TASK_ID} for experiment ${EXPERIMENT_NAME}
 /nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u -m influpaint.batch.training \
     -s ${SLURM_ARRAY_TASK_ID} \
     -e "${EXPERIMENT_NAME}_training" \
-    > out_train_${SLURM_ARRAY_TASK_ID}_${EXPERIMENT_NAME}.out 2>&1
+    > out_train_${EXPERIMENT_NAME}_${SLURM_ARRAY_TASK_ID}.out 2>&1
 
 

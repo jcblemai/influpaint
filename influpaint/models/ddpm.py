@@ -207,8 +207,9 @@ class DDPM:
                         np.arange(len(losses[-50:])), np.array(losses[-50:])
                     )
                     if mlflow_logging:
-                        import mlflow
-                        mlflow.log_figure(fig, f"training_progress_epoch_{epoch}.png")
+                        pass
+                    #     import mlflow
+                    #     mlflow.log_figure(fig, f"training_progress_epoch_{epoch}.png")
                     else:
                         plt.show()
 

@@ -24,7 +24,7 @@ season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
 @click.command()
 @click.option("-s", "--scn_id", "scn_id", required=True, type=int, help="ID of the scenario to train")
 @click.option("-e", "--experiment_name", "experiment_name", envvar="experiment_name", type=str, required=True,
-            help="MLflow experiment name")
+            help="MLflow experiment name (e.g. 'paper-2025-06_training')")
 @click.option("-d", "--output_directory", "outdir", envvar="OCP_OUTDIR", type=str, 
             default='/users/c/h/chadi/influpaint_res/', show_default=True, 
             help="Where to write model checkpoints")
@@ -42,13 +42,12 @@ def main(scn_id, experiment_name, outdir, image_size, channels, batch_size, epoc
     print(f"Training scenario {scn_id}: {scenario_spec.scenario_string}")
     print(f"Device: {device}")
 
+    # Experiment setup
     model_folder = f"{outdir}{get_git_revision_short_hash()}_{experiment_name}_{datetime.date.today()}"
     create_folders(model_folder)
-    
-    # Set up MLflow
     mlflow.set_experiment(experiment_name)
     
-    with mlflow.start_run(run_name=f"train_scenario_{scn_id}"):
+    with mlflow.start_run(run_name=f"train_{scn_id}"):
         # Log scenario and run parameters
         mlflow.log_params({
             "scenario_id": scn_id,

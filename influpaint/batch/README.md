@@ -14,15 +14,22 @@ Parallel training and inpainting for InfluPaint experiments.
 
 ## Usage
 
+### Experiment Naming Convention
+Use different experiment names for training vs inpainting:
+- **Training**: `"paper-2025-06_training"`  
+- **Inpainting**: `"paper-2025-06_inpainting"`
+
+This keeps related experiments grouped while separating training metrics from forecasting metrics in MLflow.
+
 ### Training
 ```bash
-python -m influpaint.batch.training -s 5 -e "experiment_name"
+python -m influpaint.batch.training -s 5 -e "paper-2025-06_training"
 sbatch train.run
 ```
 
 ### Inpainting
 ```bash
-python -m influpaint.batch.inpainting -s 5 -r "mlflow_run_id" -e "experiment_name" --forecast_date "2022-11-14" --config_name "celebahq_try1"
+python -m influpaint.batch.inpainting -s 5 -r "mlflow_run_id" -e "paper-2025-06_inpainting" --forecast_date "2022-11-14" --config_name "celebahq_try1"
 sbatch inpaint.run
 ```
 

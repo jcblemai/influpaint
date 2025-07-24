@@ -167,7 +167,15 @@ print(f"available for years {csp_flusurv.fluseason.unique()}")
 
 # %%
 fig, axes = idplots.plot_season_overlap_grid(csp_flusurv, season_setup, despine=True)
+# %% [markdown]
+# ## NHSN (not in training)
 
+# %%
+nhsn_flusight = pd.read_csv("Flusight/2024-2025/FluSight-forecast-hub-official/target-data/target-hospital-admissions.csv", parse_dates=["date"])
+nhsn_flusight = nhsn_flusight.rename(columns={"location": "location_code", "date": "week_enddate"})
+nhsn_flusight = season_setup.add_season_columns(nhsn_flusight, do_fluseason_year=True)
+nhsn_flusight = nhsn_flusight.drop(columns=["location_name", "weekly_rate"])
+nhsn_flusight.to_csv("influpaint/data/nhsn_flusight_past.csv", index=False)
 # %% [markdown]
 # ## B. Modeling Datasets
 
