@@ -119,12 +119,12 @@ def main(experiment_name, configs, output_dir, skip_completed):
     
     # Define 3 flu seasons for scoring
     flu_seasons = [
-        {
-            'name': '2022-2023',
-            'start': '2022-10-17', 
-            'end': '2023-05-15',
-            'freq': 'W-SAT'
-        },
+        # {
+        #     'name': '2022-2023',
+        #     'start': '2022-10-17', 
+        #     'end': '2023-05-15',
+        #     'freq': 'W-SAT'
+        # },
         {
             'name': '2023-2024', 
             'start': '2023-10-14',
