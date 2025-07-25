@@ -17,6 +17,7 @@ import datetime
 
 from . import helpers as myutils
 from ..datasets import read_datasources
+from . import converters
 
 
 def pad_dataframe(df, season_setup):
@@ -64,6 +65,7 @@ class GroundTruth():
         self.season_setup = SeasonAxis.for_flusight(remove_territories=True, remove_us=True)
 
         flusight = read_datasources.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
+        flusight = self.season_setup.add_season_columns(flusight, do_fluseason_year=True)
         gt_df_final = flusight[flusight["fluseason"] == int(self.season_first_year)]
 
         if from_final_data:
@@ -71,6 +73,7 @@ class GroundTruth():
         else:
             if not nogit: self.git_checkout_data_rev(target_date=data_date)
             flusight = read_datasources.get_from_epidata(dataset=f"flusight{self.season_first_year}", season_setup=self.season_setup, write=False)
+            flusight = self.season_setup.add_season_columns(flusight, do_fluseason_year=True)
             gt_df = flusight[flusight["fluseason"] == int(self.season_first_year)]   
             if not nogit: self.git_checkout_data_rev(target_date=None)
 
@@ -123,11 +126,11 @@ class GroundTruth():
 
         self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
 
-        self.gt_xarr = read_datasources.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
+        self.gt_xarr = converters.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHosp", 
             xarrax_features = "incidHosp")
         
-        self.gt_final_xarr = read_datasources.dataframe_to_xarray(self.gt_df_final, season_setup=self.season_setup, 
+        self.gt_final_xarr = converters.dataframe_to_xarray(self.gt_df_final, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHos_final", 
             xarrax_features = "incidHosp")
 
