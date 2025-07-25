@@ -129,13 +129,13 @@ def main(experiment_name, configs, output_dir, skip_completed):
             'name': '2023-2024', 
             'start': '2023-10-14',
             'end': '2024-05-04', 
-            'freq': 'W-SAT'
+            'freq': '2W-SAT'
         },
         {
             'name': '2024-2025', 
             'start': '2024-11-23',
             'end': '2025-05-31', 
-            'freq': 'W-SAT'
+            'freq': '2W-SAT'
         }
     ]
     
