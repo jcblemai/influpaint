@@ -28,7 +28,7 @@ AVAILABLE_UNETS = ["Rx124", "Rx1224", "Cx1224", "Rx12448"] #  "Cx12448", Cx124
 AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt", "LinsZs", "LogZs"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
-AVAILABLE_COPAINT_CONFIGS = ["celebahq_try1", "celebahq_noTT", "celebahq_noTT2", "celebahq_try3", "celebahq"]
+AVAILABLE_COPAINT_CONFIGS = ["celebahq_noTTJ5",  "celebahq_try3", "celebahq"] # "celebahq_try1", "celebahq_noTT2",
 
 # Making a baseline to prune the search space
 CONFIG_BASELINE = {
@@ -277,13 +277,13 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq_noTT": config.Config(default_config_dict={
+        "celebahq_noTTJ5": config.Config(default_config_dict={
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
                 "schedule_params": {
                     "ddpm_num_steps": timesteps,
-                    "jump_length": 10,
+                    "jump_length": 5, # was 10 before 2025-07
                     "jump_n_sample": 2,
                     "num_inference_steps": timesteps,
                     "schedule_type": "linear",
