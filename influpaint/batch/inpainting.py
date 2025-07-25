@@ -70,6 +70,10 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     output_folder = f"{outdir}{get_git_revision_short_hash()}_{experiment_name}_{datetime.date.today()}"
     create_folders(output_folder)
     mlflow.set_experiment(experiment_name)
+    inpaint_folder = f"{output_folder}/{scenario_spec.scenario_string}::inpaint_CoPaint::conf_{config_name}::{forecast_date}"
+    create_folders(inpaint_folder)
+    mlflow.log_params({"output_folder":inpaint_folder})
+
     
     with mlflow.start_run(run_name=f"inpaint_{scn_id}_{config_name}_{forecast_date}"):
         # Log scenario and run parameters
@@ -116,7 +120,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run inpainting
-        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, output_folder, forecast_date, config_name)
+        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, inpaint_folder, forecast_date, config_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 
@@ -166,11 +170,8 @@ def load_model(ddpm, run_id=None, model_path=None):
         raise ValueError("Must provide either run_id or model_path")
 
 
-def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, output_folder, forecast_date, config_name):
+def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, inpaint_folder, forecast_date, config_name):
     """Run inpainting for a single scenario, date, and config"""
-    model_id = scenario_spec.scenario_string
-    print(f">>> Running inpainting for {model_id}")
-    print(f">>> Date: {forecast_date}, Config: {config_name}")
     
     # Parse forecast date
     try:
@@ -236,11 +237,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
         fluforecasts = np.array(result['sample'].cpu())
         fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
         forecasts_national = fluforecasts_ti.sum(axis=-1)
-        
-        # Save results
-        forecast_fn = f"{model_id}::inpaint_CoPaint::conf_{config_name}"
-        inpaint_folder = f"{output_folder}/{forecast_fn}"
-        create_folders(inpaint_folder)
+    
         
         # Log forecast artifacts to MLflow and filesystem  
         log_forecast_artifacts(fluforecasts, fluforecasts_ti, forecasts_national, inpaint_folder)
@@ -249,7 +246,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
             fluforecasts_ti=fluforecasts_ti,
             forecasts_national=forecasts_national,
             directory=inpaint_folder,
-            prefix=forecast_fn,
+            prefix="copaint",
             forecast_date=forecast_dt.date(),
             save_plot=True,
             nochecks=True

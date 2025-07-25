@@ -188,6 +188,7 @@ class GroundTruth():
             print(f"Restored git repo {repo_path}")
 
     def plot(self):
+        season_start_date = datetime.date(int(self.season_first_year), self.season_setup.season_start_month, self.season_setup.season_start_day)
         fig, axes = plt.subplots(8, 8, sharex=True, figsize=(14,16))
         gt_piv  = self.gt_df.pivot(index = "week_enddate", columns='location_code', values='value')
         gt_piv_final = self.gt_df_final.pivot(index = "week_enddate", columns='location_code', values='value')
@@ -213,7 +214,6 @@ class GroundTruth():
             ax.set_title(self.season_setup.get_location_name(pl))
             #ax.grid()
             ax.set_ylim(0)
-            season_start_date = datetime.date(int(self.season_first_year), self.season_setup.season_start_month, self.season_setup.season_start_day)
             ax.set_xlim(season_start_date, season_start_date + datetime.timedelta(days=365))
             #ax.set_xticks(season_setup.get_dates(52).resample("M"))
             #ax.plot(pd.date_range(season_setup.fluseason_startdate, season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT"), data.flu_dyn[-50:,0,:,idx].T, c='r', lw=.5, alpha=.2)
@@ -492,6 +492,7 @@ class GroundTruth():
         forecast_date_str=str(forecast_date)
         if forecast_date == None:
             forecast_date = self.mask_date
+        season_start_date = datetime.date(int(self.season_first_year), self.season_setup.season_start_month, self.season_setup.season_start_day)
 
         target_dates = pd.date_range(forecast_date, forecast_date + datetime.timedelta(days=3*7), freq="W-SAT")
 
