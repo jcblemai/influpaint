@@ -102,7 +102,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         print("Creating model, dataset, and transforms...")
         from .scenarios import create_scenario_objects
         ddpm, dataset, transform, enrich, scaling_per_channel, data_mean, data_sd = create_scenario_objects(
-            scenario_spec, season_setup, image_size, channels, batch_size, 1s, device
+            scenario_spec, season_setup, image_size, channels, batch_size, 1, device
         )
         
         # Load trained model
