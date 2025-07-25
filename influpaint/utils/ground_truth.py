@@ -82,8 +82,14 @@ class GroundTruth():
         self.gt_df_final = gt_df_final[gt_df_final["location_code"].isin(self.season_setup.locations)]
         
         # generates past data
-        self.previous_data = [read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False),
-                            read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)]
+        past_data_1 = read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)
+        past_data_2 = read_datasources.get_from_epidata(dataset=f"flusight2024", season_setup=self.season_setup, write=False)
+        
+        # Add season columns to past data
+        past_data_1 = self.season_setup.add_season_columns(past_data_1, do_fluseason_year=True)
+        past_data_2 = self.season_setup.add_season_columns(past_data_2, do_fluseason_year=True)
+        
+        self.previous_data = [past_data_1, past_data_2]
         
 
 
@@ -101,7 +107,7 @@ class GroundTruth():
             if payload_season_first_year is None:
                 payload_season_first_year = season_first_year
             import dataset_mixer
-            payload = season_setup.add_season_columns(payload, self.season_setup)
+            payload = self.season_setup.add_season_columns(payload, do_fluseason_year=True)
             this_payload = payload[payload["fluseason"] == int(payload_season_first_year)]
             self.gt_df = pd.concat([self.gt_df, this_payload], ignore_index=True)
             self.gt_df_final = pd.concat([self.gt_df_final, this_payload], ignore_index=True)
@@ -124,7 +130,9 @@ class GroundTruth():
             # change the flusetup locations to be in the same order as flu_payload_array.coords["place"]
             self.season_setup.reorder_locations(list(dataset_coords["place"].values))
 
+        # Concatenate all previous data and ensure it has season columns
         self.previous_data = pd.concat(self.previous_data, ignore_index=True).drop_duplicates()
+        self.previous_data = self.season_setup.add_season_columns(self.previous_data, do_fluseason_year=True)
 
         self.gt_xarr = converters.dataframe_to_xarray(self.gt_df, season_setup=self.season_setup, 
             xarray_name = "gt_flusight_incidHosp", 

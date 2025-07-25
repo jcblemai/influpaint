@@ -116,7 +116,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run inpainting
-        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
+        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, output_folder, forecast_date, config_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 
