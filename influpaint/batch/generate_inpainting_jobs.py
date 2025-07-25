@@ -203,7 +203,7 @@ def main(experiment_name, configs, output_dir, skip_completed):
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --qos gpu_access
-#SBATCH -p a100-gpu,l40-gpu,volta-gpu
+#SBATCH -p a100-gpu,l40-gpu
 #SBATCH --mem=32G
 #SBATCH -t 00-04:00:00
 #SBATCH --array=0-{len(jobs)-1}
