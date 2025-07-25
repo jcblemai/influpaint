@@ -22,7 +22,7 @@ import mlflow
 
 from .scenarios import get_training_scenario
 from .config import copaint_config_library, create_folders, get_git_revision_short_hash
-import ground_truth
+from ..utils import ground_truth
 
 sys.path.append('CoPaint4influpaint')
 from guided_diffusion import O_DDIMSampler
@@ -116,7 +116,7 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
         mlflow.log_param("dataset_size", len(dataset))
         
         # Run inpainting
-        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name, experiment_name)
+        run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_size, device, outdir, forecast_date, config_name)
         
         print(f"Inpainting completed for scenario {scn_id}, date {forecast_date}, config {config_name}")
 

@@ -229,7 +229,7 @@ CONFIG=$(echo $JOB_LINE | cut -d',' -f6)
 echo "Scenario: ${{SCENARIO_ID}}, Run: ${{RUN_ID}}, Season: ${{SEASON}}, Date: ${{DATE}}, Config: ${{CONFIG}}"
 
 # Run atomic inpainting with known run_id
-/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u influpaint/batch/inpainting.py \\
+/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python -u -m influpaint.batch.inpainting \\
     -s ${{SCENARIO_ID}} \\
     -r "${{RUN_ID}}" \\
     -e "${{INPAINT_EXP}}" \\
