@@ -72,8 +72,6 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
     mlflow.set_experiment(experiment_name)
     inpaint_folder = f"{output_folder}/{scenario_spec.scenario_string}::inpaint_CoPaint::conf_{config_name}::{forecast_date}"
     create_folders(inpaint_folder)
-    mlflow.log_params({"output_folder":inpaint_folder})
-
     
     with mlflow.start_run(run_name=f"inpaint_{scn_id}_{config_name}_{forecast_date}"):
         # Log scenario and run parameters
@@ -90,7 +88,8 @@ def main(scn_id, run_id, model_path, experiment_name, outdir, forecast_date, con
             "image_size": image_size,
             "channels": channels,
             "batch_size": batch_size,
-            "device": device
+            "device": device,
+            "output_folder": inpaint_folder
         }
         
         if run_id:
