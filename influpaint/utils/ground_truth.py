@@ -205,7 +205,8 @@ class GroundTruth():
             ax.set_title(self.season_setup.get_location_name(pl))
             #ax.grid()
             ax.set_ylim(0)
-            ax.set_xlim(self.season_setup.fluseason_startdate, self.season_setup.fluseason_startdate + datetime.timedelta(days=365))
+            season_start_date = datetime.date(int(self.season_first_year), self.season_setup.season_start_month, self.season_setup.season_start_day)
+            ax.set_xlim(season_start_date, season_start_date + datetime.timedelta(days=365))
             #ax.set_xticks(season_setup.get_dates(52).resample("M"))
             #ax.plot(pd.date_range(season_setup.fluseason_startdate, season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT"), data.flu_dyn[-50:,0,:,idx].T, c='r', lw=.5, alpha=.2)
         fig.tight_layout()
@@ -240,6 +241,9 @@ class GroundTruth():
         if forecast_date == None:
             forecast_date = self.mask_date
 
+        # Calculate season start date for date range calculations
+        season_start_date = datetime.date(int(self.season_first_year), self.season_setup.season_start_month, self.season_setup.season_start_day)
+
         target_dates = pd.date_range(forecast_date, forecast_date + datetime.timedelta(days=4*7), freq="W-SAT")
 
         target_dict= dict(zip(
@@ -251,10 +255,10 @@ class GroundTruth():
         df_list=[]
         for qt in myutils.flusight_quantiles:
             a =  pd.DataFrame(np.quantile(fluforecasts_ti[:,:,:,:len(self.season_setup.locations)], qt, axis=0)[0], 
-                    columns= self.season_setup.locations, index=pd.date_range(self.season_setup.fluseason_startdate, self.season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+                    columns= self.season_setup.locations, index=pd.date_range(season_start_date, season_start_date + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
             #a["US"] = a.sum(axis=1)
             a["US"] = pd.DataFrame(np.quantile(forecasts_national, qt, axis=0)[0],
-                    columns= ["US"], index=pd.date_range(self.season_setup.fluseason_startdate, self.season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+                    columns= ["US"], index=pd.date_range(season_start_date, season_start_date + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
 
             a = a.reset_index().rename(columns={'index': 'target_end_date'})
             a = pd.melt(a,id_vars="target_end_date",var_name="location")
@@ -490,10 +494,10 @@ class GroundTruth():
         df_list=[]
         for qt in myutils.flusight_quantiles:
             a =  pd.DataFrame(np.quantile(fluforecasts_ti[:,:,:,:len(self.season_setup.locations)], qt, axis=0)[0], 
-                    columns= self.season_setup.locations, index=pd.date_range(self.season_setup.fluseason_startdate, self.season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+                    columns= self.season_setup.locations, index=pd.date_range(season_start_date, season_start_date + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
             #a["US"] = a.sum(axis=1)
             a["US"] = pd.DataFrame(np.quantile(forecasts_national, qt, axis=0)[0],
-                    columns= ["US"], index=pd.date_range(self.season_setup.fluseason_startdate, self.season_setup.fluseason_startdate + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
+                    columns= ["US"], index=pd.date_range(season_start_date, season_start_date + datetime.timedelta(days=64*7), freq="W-SAT")).loc[target_dates]
 
             a = a.reset_index().rename(columns={'index': 'target_end_date'})
             a = pd.melt(a,id_vars="target_end_date",var_name="location")
