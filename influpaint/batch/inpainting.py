@@ -241,7 +241,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
         # Log forecast artifacts to MLflow and filesystem  
         log_forecast_artifacts(fluforecasts, fluforecasts_ti, forecasts_national, inpaint_folder)
         
-        gt1.export_forecasts(
+        gt1.export_forecasts_2023(
             fluforecasts_ti=fluforecasts_ti,
             forecasts_national=forecasts_national,
             directory=inpaint_folder,
