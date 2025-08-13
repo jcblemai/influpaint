@@ -295,12 +295,8 @@ class GroundTruth():
             for dfd in df_list:  # very important to not call this df: it overwrites in namesapce the exported df
                 new_vals = dfd[dfd["target_end_date"]==tg]["value"].to_numpy()
                 if not (new_vals-old_vals >= 0).all():
-                    print(f""" !!!! failed for {dfd["quantile"].unique()} on date {tg}""")
-                    print((new_vals-old_vals).max())
-                    for n, o, p in zip(new_vals, old_vals, dfd.location.unique()):
-                        if "US" not in p:
-                            p=p+self.season_setup.get_location_name(p)
-                        print((n-o>0),p, n, o)
+                    num_negative = sum((new_vals-old_vals) < 0)
+                    print(f" !!!! Quantile validation failed: {num_negative} negative values on {tg}")
                 else:
                     pass
                     #print(f"""ok for {dfd["quantile"].unique()}, {tg}""")
@@ -522,9 +518,10 @@ class GroundTruth():
         df = df[["reference_date","target","horizon","target_end_date","location","output_type","output_type_id","value"]]
         df
 
-        for col in df.columns:
-            print(col)
-            print(df[col].unique())
+        # Suppress verbose output for column information  
+        # for col in df.columns:
+        #     print(col)
+        #     print(df[col].unique())
 
         if not nochecks:
             assert sum(df["value"]<0) == 0
@@ -536,12 +533,8 @@ class GroundTruth():
             for dfd in df_list:  # very important to not call this df: it overwrites in namesapce the exported df
                 new_vals = dfd[dfd["target_end_date"]==tg]["value"].to_numpy()
                 if not (new_vals-old_vals >= 0).all():
-                    print(f""" !!!! failed for {dfd["quantile"].unique()} on date {tg}""")
-                    print((new_vals-old_vals).max())
-                    for n, o, p in zip(new_vals, old_vals, dfd.location.unique()):
-                        if "US" not in p:
-                            p=p+self.season_setup.get_location_name(p)
-                        print((n-o>0),p, n, o)
+                    num_negative = sum((new_vals-old_vals) < 0)
+                    print(f" !!!! Quantile validation failed: {num_negative} negative values on {tg}")
                 else:
                     pass
                     #print(f"""ok for {dfd["quantile"].unique()}, {tg}""")
