@@ -156,7 +156,7 @@ DATASET_GRIDS = {
         "flepiR1":     {"proportion": 0.05, "total": 3000},
         "SMH_R4-R5":   {"proportion": 0.25, "total": 3000}
     },
-    # 3. Half-half (uncertainty stress-test)
+    # 2. Hybrid 30 % surveillance / 70 % modeling 
     "30S70M": {
         "fluview":     {"proportion": 0.15, "total": 3000, "to_scale": True},
         "flusurv":     {"proportion": 0.15, "total": 3000},

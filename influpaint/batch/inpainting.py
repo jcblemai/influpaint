@@ -245,7 +245,7 @@ def run_inpainting(scenario_spec, ddpm, dataset, image_size, channels, batch_siz
             fluforecasts_ti=fluforecasts_ti,
             forecasts_national=forecasts_national,
             directory=inpaint_folder,
-            prefix="copaint",
+            prefix=f"{scenario_spec.scenario_string}::CoPaintConf_{config_name}",
             forecast_date=forecast_dt.date(),
             save_plot=True,
             nochecks=True
