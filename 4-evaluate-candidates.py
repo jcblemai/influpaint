@@ -368,7 +368,7 @@ def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[scoring
 
 
 def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, 
-                dataset: scoring_eval.ForecastDataset, save_dir: str, model_missing_counts: Dict[str, int]):
+                dataset: scoring_eval.ForecastDataset, save_dir: str, missing_counts: Dict[str, int]):
     """
     Create visualization plots for the season results using evaluation_module.
     
@@ -378,14 +378,14 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_rel: Relative scores dataframe
         dataset: scoring_eval.ForecastDataset with model info
         save_dir: Directory to save plots
-        model_missing_counts: Dictionary of missing counts per model
+        missing_counts: Dictionary of missing counts per model
     """
     # 1a) Heatmap of absolute WIS - US only
     scoring_plot.forecast_scores_heatmap(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS (US National only)", 
         f"{season}_absolute_wis_heatmap_US.png", 
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         location_filter="US", scoring_metric="wis_total"
     )
 
@@ -394,7 +394,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS vs Baseline (US National only)",
         f"{season}_relative_wis_heatmap_US.png", 
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         center=1, vmin=0, vmax=2, location_filter="US", scoring_metric="wis_total"
     )
 
@@ -403,7 +403,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS (All 51 locations summed)",
         f"{season}_absolute_wis_heatmap_AllSum.png", 
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         location_filter="ALL", scoring_metric="wis_total"
     )
 
@@ -412,7 +412,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS vs Baseline (All 51 locations summed)",
         f"{season}_relative_wis_heatmap_AllSum.png", 
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         center=1, vmin=0, vmax=2, location_filter="ALL", scoring_metric="wis_total"
     )
 
@@ -421,7 +421,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: WIS Components (US National only)",
         f"{season}_wis_components_US.png",
-        save_dir, model_missing_counts, location_filter="US"
+        save_dir, missing_counts, location_filter="US"
     )
 
     # 2b) WIS components - All locations summed  
@@ -429,7 +429,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: WIS Components (All 51 locations summed)",
         f"{season}_wis_components_AllSum.png",
-        save_dir, model_missing_counts, location_filter="ALL"
+        save_dir, missing_counts, location_filter="ALL"
     )
     
     # 3a) Absolute time series - US only
@@ -437,7 +437,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS Over Time (US National)",
         f"{season}_absolute_timeseries_US.png",
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         location_filter="US", scoring_metric="wis_total", is_relative=False
     )
     
@@ -446,7 +446,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS Over Time (US National)",
         f"{season}_relative_timeseries_US.png", 
-        save_dir, model_missing_counts,
+        save_dir, missing_counts,
         location_filter="US", scoring_metric="wis_total", is_relative=True
     )
 
@@ -474,7 +474,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         if not dataset.records:
             raise RuntimeError(f"No forecasts found for season {season}")
         gt = load_ground_truth(season)
-        all_scores_t = scoring_eval.score_dataset(dataset, gt)
+        all_scores_t, missing_counts = scoring_eval.score_dataset(dataset, gt, dates)
         if all_scores_t.empty:
             raise RuntimeError(f"Scoring produced no results for season {season}")
         logging.info(f"Successfully scored {len(all_scores_t['model'].unique())} models for season {season}")
@@ -495,7 +495,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()
 
     # Create plots using evaluation_module
-    create_plots(season, all_scores_t, all_scores_rel, dataset, save_dir, model_missing_counts)
+    create_plots(season, all_scores_t, all_scores_rel, dataset, save_dir, missing_counts)
 
     return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "dataset": dataset, "model_missing_counts": model_missing_counts}
 
@@ -542,6 +542,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     # Collect data from all seasons
     all_records = []
     combined_missing_counts = {}
+    all_expected_dates = []
     
     for season in seasons:
         if season not in Config.FLUSIGHT_BASES:
@@ -560,6 +561,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
         
         # Add to combined collections
         all_records.extend(flusight_recs + influpaint_recs)
+        all_expected_dates.extend(dates)
         
         # Combine missing counts (prefix with season to avoid conflicts)
         for model, count in flusight_missing.items():
@@ -578,7 +580,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     
     # Score the combined dataset
     print("Computing WIS scores...")
-    all_scores_t = scoring_eval.score_dataset(combined_dataset, combined_gt_df)
+    all_scores_t, validation_missing_counts = scoring_eval.score_dataset(combined_dataset, combined_gt_df, all_expected_dates)
     
     if all_scores_t.empty:
         raise RuntimeError("Scoring produced no results")
@@ -600,7 +602,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     season_label = "_".join(seasons)
     print(f"Creating plots → {save_dir}")
     create_plots(f"Combined ({season_label})", all_scores_t, all_scores_rel, 
-                combined_dataset, save_dir, combined_missing_counts)
+                combined_dataset, save_dir, validation_missing_counts)
     
     return {
         "all_scores": all_scores_t, 

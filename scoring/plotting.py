@@ -10,6 +10,7 @@ This module provides specialized plotting functions for forecast evaluation:
 
 from typing import Dict, List, Optional
 import os
+import colorsys
 
 import pandas as pd
 import numpy as np
@@ -153,10 +154,16 @@ def forecast_components_breakdown(
     filename: str,
     save_dir: str,
     missing_counts: Optional[Dict[str, int]] = None,
-    location_filter: str = "US"
+    location_filter: str = "US",
+    component_order: Optional[List[str]] = None,
+    sort_by: str = "wis_total"
 ) -> None:
     """
     Create breakdown plot showing forecast scoring metric components (e.g., WIS: sharpness, overprediction, underprediction).
+    
+    Args:
+        component_order: Optional list specifying column order (e.g., ["wis_total", "wis_sharpness", "wis_overprediction", "wis_underprediction"])
+        sort_by: Column name to sort models by (default: "wis_total")
     """
     os.makedirs(save_dir, exist_ok=True)
     
@@ -184,14 +191,24 @@ def forecast_components_breakdown(
         print(f"No component data: {filename}")
         return
     
-    # Sort by total score (if available)
-    total_cols = [c for c in comp_data.columns if "total" in c.lower()]
-    if total_cols:
-        comp_data = comp_data.sort_values(total_cols[0])
-        comp_data = comp_data[comp_data[total_cols[0]] > 0]  # Remove zero rows
+    # Sort by specified column
+    if sort_by in comp_data.columns:
+        comp_data = comp_data.sort_values(sort_by)
+    else:
+        # Fallback to total column if sort_by not found
+        total_cols = [c for c in comp_data.columns if "total" in c.lower()]
+        if total_cols:
+            comp_data = comp_data.sort_values(total_cols[0])
     
-    # Select components to plot (all available)
-    components = comp_data.columns.tolist()
+    # Select components to plot in specified order
+    if component_order is not None:
+        # Use specified order, but only include columns that exist
+        components = [c for c in component_order if c in comp_data.columns]
+    else:
+        # Default order: put total first, then others
+        total_cols = [c for c in comp_data.columns if "total" in c.lower()]
+        other_cols = [c for c in comp_data.columns if c not in total_cols]
+        components = total_cols + sorted(other_cols)
     
     if not components or comp_data.empty:
         print(f"No valid components: {filename}")
@@ -316,26 +333,47 @@ def forecast_performance_timeseries(
             
             top_models.extend(group_top)
     
-    # Generate unique colors for each model within group color family  
+    # Generate unique colors and markers for each model within group color family  
     model_colors = {}
+    model_markers = {}
+    marker_cycle = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h', 'H', '8']
+    
     for group in groups:
         group_models = [m for m in top_models if model_info.get(m, {}).get('group') == group]
         if group_models:
             base_color = group_colors.get(group, 'gray')
+            
             if len(group_models) == 1:
-                # Single model: use base color
+                # Single model: use base color and circle marker
                 model_colors[group_models[0]] = base_color
+                model_markers[group_models[0]] = 'o'
             else:
-                # Multiple models: create variations of base color
+                # Multiple models: create variations using both color tones and markers
                 base_rgb = mcolors.to_rgb(base_color)
-                # Create lighter and darker variants
+                
                 for j, model in enumerate(group_models):
+                    # Assign different markers first (most distinguishable)
+                    model_markers[model] = marker_cycle[j % len(marker_cycle)]
+                    
                     if j == 0:
-                        model_colors[model] = base_color  # Original color for first model
+                        # First model: use base color
+                        model_colors[model] = base_color
                     else:
-                        # Create variations by adjusting brightness
-                        factor = 0.7 + 0.6 * (j / len(group_models))  # Range from 0.7 to 1.3
-                        varied_rgb = tuple(min(1.0, c * factor) for c in base_rgb)
+                        # Other models: create color variations
+                        # Use HSV color space for better tone variations
+                        hsv = colorsys.rgb_to_hsv(*base_rgb)
+                        
+                        # Vary saturation and value to create distinguishable tones
+                        if j % 2 == 1:
+                            # Odd indices: darker/more saturated
+                            new_s = min(1.0, hsv[1] * 1.2)
+                            new_v = max(0.3, hsv[2] * 0.8)
+                        else:
+                            # Even indices: lighter/less saturated
+                            new_s = max(0.4, hsv[1] * 0.7)
+                            new_v = min(1.0, hsv[2] * 1.1)
+                        
+                        varied_rgb = colorsys.hsv_to_rgb(hsv[0], new_s, new_v)
                         model_colors[model] = varied_rgb
     
     # Create 2x2 subplots
@@ -358,6 +396,7 @@ def forecast_performance_timeseries(
                 
                 info = model_info.get(model_id, {"display_name": model_id, "group": "unknown"})
                 color = model_colors.get(model_id, 'gray')
+                marker = model_markers.get(model_id, 'o')
                 missing_count = missing_counts.get(model_id, 0) if missing_counts else 0
                 
                 # Create label (only show on first subplot to avoid duplication)
@@ -376,8 +415,9 @@ def forecast_performance_timeseries(
                     alpha = 0.7 if missing_count > 0 else 1.0
                 
                 ax.plot(model_data["forecast_date"], model_data["value"], 
-                       marker='o', label=label, color=color, linestyle=linestyle, 
-                       linewidth=2, alpha=alpha, markersize=3)
+                       marker=marker, label=label, color=color, linestyle=linestyle, 
+                       linewidth=2, alpha=alpha, markersize=5, markeredgewidth=1, 
+                       markeredgecolor='white')
         
         # Add reference line for relative plots
         if is_relative:

@@ -13,8 +13,9 @@ from typing import Dict, List, Tuple, Callable, Optional, Union
 import pandas as pd
 import numpy as np
 
-# Import ground-truth scoring helpers (WIS, hub-compatible scorer)
-import evaluate_deprecated as edep
+# Import WIS computation and validation
+from . import weighted_interval_score as wis
+from . import validation
 
 
 @dataclass
@@ -68,35 +69,50 @@ class ModelGroupConfig:
 def score_dataset(
     dataset: ForecastDataset,
     ground_truth: pd.DataFrame,
-) -> pd.DataFrame:
+    expected_dates: Optional[List] = None,
+) -> tuple[pd.DataFrame, Dict[str, int]]:
     """
     Compute absolute WIS and its components for all models and forecast dates.
 
-    Returns a tidy dataframe with columns:
-    - model, forecast_date, target, target_end_date, scoring_metric, location, value
+    Args:
+        dataset: ForecastDataset with forecast records
+        ground_truth: Ground truth DataFrame
+        expected_dates: Optional list of expected forecast dates for missing count calculation
+        
+    Returns:
+        tuple: (scores_dataframe, missing_counts_dict)
+        - scores_dataframe: Tidy dataframe with columns: model, forecast_date, target, target_end_date, scoring_metric, location, value  
+        - missing_counts_dict: Dictionary mapping model names to missing forecast counts
     """
+    # Validate input data format and consistency, get missing counts
+    missing_counts = validation.validate_forecast_dataset(dataset, ground_truth, expected_dates)
+    validation.validate_group_consistency(dataset)
+    
     scores: Dict[str, pd.DataFrame] = {}
     by_model = dataset.by_model()
+    
     for model, dated in by_model.items():
         model_scores = {}
         for date, fdf in dated.items():
             try:
-                # Delegate the hub-format scoring to deprecated helpers
-                wis_all = edep.score_Nwk_forecasts_hub(ground_truth, fdf)
+                # Use internal WIS computation
+                wis_all = wis.score_Nwk_forecasts_hub(ground_truth, fdf)
                 model_scores[date] = wis_all
-            except Exception:
-                continue
+            except Exception as e:
+                raise validation.ValidationError(
+                    f"WIS computation failed for model '{model}', date {date}: {e}"
+                )
         if model_scores:
             scores[model] = pd.concat(model_scores, names=["forecast_date", "target", "target_end_date"])
 
     if not scores:
-        return pd.DataFrame()
+        raise validation.ValidationError("No valid scores computed for any model/date combination")
 
     all_scores = pd.concat(scores, names=["model", "forecast_date", "target", "target_end_date"]).reset_index()
     id_vars = ['model', 'forecast_date', 'target', 'target_end_date', 'scoring_metric']
     location_columns = [col for col in all_scores.columns if col not in id_vars]
     tidy = pd.melt(all_scores, id_vars=id_vars, value_vars=location_columns, var_name='location', value_name='value')
-    return tidy
+    return tidy, missing_counts
 
 
 def compute_relative_scores(
