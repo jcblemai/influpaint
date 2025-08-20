@@ -2,7 +2,7 @@
 # InfluPaint vs FluSight Evaluation Orchestrator
 # This notebook-style script orchestrates the evaluation process by:
 # - Loading CSV forecast data for InfluPaint and FluSight models
-# - Creating ForecastDataset objects with proper grouping and display names
+# - Creating scoring_eval.ForecastDataset objects with proper grouping and display names
 # - Using evaluation_module for scoring and plotting
 # - Supporting flexible model grouping (influpaint vs flusight, scenarios, etc.)
 
@@ -16,18 +16,9 @@ import seaborn as sns
 import logging
 from typing import Dict, List, Tuple, Optional, Union
 
-# Import our evaluation and plotting modules
-from evaluation_module import (
-    ForecastRecord, 
-    ForecastDataset, 
-    score_dataset, 
-    compute_relative_scores
-)
-from plotting_module import (
-    create_heatmap_plot,
-    create_component_plot,
-    create_time_series_plot
-)
+# Import our scoring package modules
+import scoring.evaluation as scoring_eval
+import scoring.plotting as scoring_plot
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -277,10 +268,10 @@ def create_display_name(model_name: str) -> str:
         return model_name
 
 
-def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[ForecastRecord], Dict[str, int]]:
-    """Collect FluSight forecasts into ForecastRecord list and missing counts."""
+def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[scoring_eval.ForecastRecord], Dict[str, int]]:
+    """Collect FluSight forecasts into scoring_eval.ForecastRecord list and missing counts."""
     flusight_models = list_flusight_models(season)
-    records: List[ForecastRecord] = []
+    records: List[scoring_eval.ForecastRecord] = []
     missing_counts: Dict[str, int] = {}
     for model in flusight_models:
         present = 0
@@ -293,7 +284,7 @@ def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[Fo
                 if missing_q:
                     continue
                 records.append(
-                    ForecastRecord(
+                    scoring_eval.ForecastRecord(
                         model=model,
                         group="flusight", 
                         display_name=create_display_name(model),
@@ -312,8 +303,8 @@ def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[Fo
 
 
 
-def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: pd.DataFrame) -> Tuple[List[ForecastRecord], Dict[str, int], Dict[str, Dict]]:
-    """Collect InfluPaint forecasts into ForecastRecord list, missing counts, and failures."""
+def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: pd.DataFrame) -> Tuple[List[scoring_eval.ForecastRecord], Dict[str, int], Dict[str, Dict]]:
+    """Collect InfluPaint forecasts into scoring_eval.ForecastRecord list, missing counts, and failures."""
     configs = sorted(season_jobs["config"].unique().tolist())
     model_paths: Dict[str, Dict[dt.date, str]] = {}
     for config in configs:
@@ -322,7 +313,7 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
             for run_name, path in matches:
                 model_paths.setdefault(run_name, {})[d] = path
 
-    records: List[ForecastRecord] = []
+    records: List[scoring_eval.ForecastRecord] = []
     missing_counts: Dict[str, int] = {}
     failures: Dict[str, Dict] = {}
 
@@ -350,7 +341,7 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
                     failure_details[d] = f"Missing quantiles {missing_q[:3]}{'...' if len(missing_q) > 3 else ''}"
                     continue
                 records.append(
-                    ForecastRecord(
+                    scoring_eval.ForecastRecord(
                         model=run_name,
                         group="influpaint",
                         display_name=create_display_name(run_name),
@@ -400,13 +391,13 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
     return records, missing_counts, failures
 
 
-def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[ForecastDataset, Dict[str, int], Dict[str, Dict]]:
-    """Load forecasts for both groups and return a ForecastDataset plus missing counts and failures."""
+def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[scoring_eval.ForecastDataset, Dict[str, int], Dict[str, Dict]]:
+    """Load forecasts for both groups and return a scoring_eval.ForecastDataset plus missing counts and failures."""
     jobs = read_jobs()
     season_jobs = jobs[jobs["season"] == season]
     flusight_recs, flusight_missing = collect_flusight_records(season, dates)
     influpaint_recs, influpaint_missing, influpaint_failures = collect_influpaint_records(season, dates, season_jobs)
-    dataset = ForecastDataset(records=flusight_recs + influpaint_recs)
+    dataset = scoring_eval.ForecastDataset(records=flusight_recs + influpaint_recs)
     missing_counts = {**flusight_missing, **influpaint_missing}
     return dataset, missing_counts, influpaint_failures
 
@@ -566,7 +557,7 @@ def create_failed_jobs_file(season: str, failures: Dict, save_dir: str):
 
 
 def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, 
-                dataset: ForecastDataset, save_dir: str, model_missing_counts: Dict[str, int]):
+                dataset: scoring_eval.ForecastDataset, save_dir: str, model_missing_counts: Dict[str, int]):
     """
     Create visualization plots for the season results using evaluation_module.
     
@@ -574,12 +565,12 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         season: Season identifier
         all_scores_t: Absolute scores dataframe
         all_scores_rel: Relative scores dataframe
-        dataset: ForecastDataset with model info
+        dataset: scoring_eval.ForecastDataset with model info
         save_dir: Directory to save plots
         model_missing_counts: Dictionary of missing counts per model
     """
     # 1a) Heatmap of absolute WIS - US only
-    create_heatmap_plot(
+    scoring_plot.forecast_scores_heatmap(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS (US National only)", 
         f"{season}_absolute_wis_heatmap_US.png", 
@@ -588,7 +579,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
 
     # 1b) Heatmap of relative WIS - US only  
-    create_heatmap_plot(
+    scoring_plot.forecast_scores_heatmap(
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS vs Baseline (US National only)",
         f"{season}_relative_wis_heatmap_US.png", 
@@ -597,7 +588,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
 
     # 1c) Heatmap of absolute WIS - All locations summed
-    create_heatmap_plot(
+    scoring_plot.forecast_scores_heatmap(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS (All 51 locations summed)",
         f"{season}_absolute_wis_heatmap_AllSum.png", 
@@ -606,7 +597,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
 
     # 1d) Heatmap of relative WIS - All locations summed
-    create_heatmap_plot(
+    scoring_plot.forecast_scores_heatmap(
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS vs Baseline (All 51 locations summed)",
         f"{season}_relative_wis_heatmap_AllSum.png", 
@@ -615,7 +606,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
 
     # 2a) WIS components - US only
-    create_component_plot(
+    scoring_plot.forecast_components_breakdown(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: WIS Components (US National only)",
         f"{season}_wis_components_US.png",
@@ -623,7 +614,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
 
     # 2b) WIS components - All locations summed  
-    create_component_plot(
+    scoring_plot.forecast_components_breakdown(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: WIS Components (All 51 locations summed)",
         f"{season}_wis_components_AllSum.png",
@@ -631,7 +622,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
     
     # 3a) Absolute time series - US only
-    create_time_series_plot(
+    scoring_plot.forecast_performance_timeseries(
         all_scores_t, dataset, Config.GROUP_COLORS,
         f"{season}: Absolute WIS Over Time (US National)",
         f"{season}_absolute_timeseries_US.png",
@@ -640,7 +631,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
     )
     
     # 3b) Relative time series - US only
-    create_time_series_plot(
+    scoring_plot.forecast_performance_timeseries(
         all_scores_rel, dataset, Config.GROUP_COLORS,
         f"{season}: Relative WIS Over Time (US National)",
         f"{season}_relative_timeseries_US.png", 
@@ -672,7 +663,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         if not dataset.records:
             raise RuntimeError(f"No forecasts found for season {season}")
         gt = load_ground_truth(season)
-        all_scores_t = score_dataset(dataset, gt)
+        all_scores_t = scoring_eval.score_dataset(dataset, gt)
         if all_scores_t.empty:
             raise RuntimeError(f"Scoring produced no results for season {season}")
         logging.info(f"Successfully scored {len(all_scores_t['model'].unique())} models for season {season}")
@@ -694,7 +685,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
     baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
     baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
     try:
-        all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
+        all_scores_rel = scoring_eval.compute_relative_scores(all_scores_t, baseline_model)
     except Exception:
         # Fallback: no baseline present, just copy wis_total
         all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()
@@ -779,14 +770,14 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
         raise RuntimeError("No forecast records found across all seasons")
     
     # Create combined dataset
-    combined_dataset = ForecastDataset(records=all_records)
+    combined_dataset = scoring_eval.ForecastDataset(records=all_records)
     
     # Use ground truth from 2024-2025 season only
     combined_gt_df = load_ground_truth("2024-2025")
     
     # Score the combined dataset
     print("Computing WIS scores...")
-    all_scores_t = score_dataset(combined_dataset, combined_gt_df)
+    all_scores_t = scoring_eval.score_dataset(combined_dataset, combined_gt_df)
     
     if all_scores_t.empty:
         raise RuntimeError("Scoring produced no results")
@@ -799,7 +790,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
     
     try:
-        all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
+        all_scores_rel = scoring_eval.compute_relative_scores(all_scores_t, baseline_model)
     except Exception:
         # Fallback: no baseline present, just copy wis_total
         all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()

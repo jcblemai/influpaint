@@ -1,10 +1,10 @@
 """
-Plotting Module - Visualization functions for forecast evaluation.
+Forecast Evaluation Plotting - Visualization functions for forecast performance analysis.
 
-This module provides plotting functions for:
-- Heatmap plots showing scores across models and forecast dates
-- Component plots breaking down scoring metrics into parts  
-- Time series plots showing performance over time with horizon subplots
+This module provides specialized plotting functions for forecast evaluation:
+- forecast_scores_heatmap: Scores across models and forecast dates
+- forecast_components_breakdown: Component breakdown of scoring metrics  
+- forecast_performance_timeseries: Performance over time with horizon subplots
 - Supports flexible model grouping, coloring, and multiple scoring metrics
 """
 
@@ -17,10 +17,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.colors as mcolors
 
-from evaluation_module import ForecastDataset
+from .evaluation import ForecastDataset
 
 
-def create_heatmap_plot(
+def forecast_scores_heatmap(
     scores_df: pd.DataFrame,
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
@@ -36,19 +36,19 @@ def create_heatmap_plot(
     aggregation: str = "mean"  # "mean" or "sum"
 ) -> None:
     """
-    Create standardized heatmap plot for scoring metrics.
+    Create heatmap showing forecast scoring metrics across models and dates.
     
     Args:
-        scores_df: Tidy scores dataframe 
+        scores_df: Tidy forecast scores dataframe 
         dataset: ForecastDataset with model display names and groups
-        group_colors: Dictionary mapping group names to colors
+        group_colors: Dictionary mapping model group names to colors
         title: Plot title
         filename: Output filename
         save_dir: Output directory
         missing_counts: Optional dict of missing forecast counts per model
         center, vmin, vmax: Colormap parameters
         location_filter: Location to filter ("US" or "ALL" for all locations summed)
-        scoring_metric: Type of scoring metric to plot
+        scoring_metric: Type of forecast scoring metric to plot
         aggregation: How to aggregate across forecast dates ("mean" or "sum")
     """
     os.makedirs(save_dir, exist_ok=True)
@@ -145,7 +145,7 @@ def create_heatmap_plot(
     plt.close(fig)
 
 
-def create_component_plot(
+def forecast_components_breakdown(
     scores_df: pd.DataFrame,
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
@@ -156,7 +156,7 @@ def create_component_plot(
     location_filter: str = "US"
 ) -> None:
     """
-    Create scoring metric component breakdown plot (e.g., for WIS: sharpness, overprediction, underprediction).
+    Create breakdown plot showing forecast scoring metric components (e.g., WIS: sharpness, overprediction, underprediction).
     """
     os.makedirs(save_dir, exist_ok=True)
     
@@ -246,7 +246,7 @@ def create_component_plot(
     plt.close(fig)
 
 
-def create_time_series_plot(
+def forecast_performance_timeseries(
     scores_df: pd.DataFrame,
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
@@ -260,8 +260,8 @@ def create_time_series_plot(
     is_relative: bool = False
 ) -> None:
     """
-    Create time series plot showing performance over forecast dates.
-    Creates 2x2 subplots for each horizon to avoid overlap.
+    Create time series plot showing forecast model performance over time.
+    Creates 2x2 subplots for different forecast horizons to avoid overlap.
     """
     os.makedirs(save_dir, exist_ok=True)
     
