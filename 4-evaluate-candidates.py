@@ -16,12 +16,14 @@ import seaborn as sns
 import logging
 from typing import Dict, List, Tuple, Optional, Union
 
-# Import our evaluation module
+# Import our evaluation and plotting modules
 from evaluation_module import (
     ForecastRecord, 
     ForecastDataset, 
     score_dataset, 
-    compute_relative_scores,
+    compute_relative_scores
+)
+from plotting_module import (
     create_heatmap_plot,
     create_component_plot,
     create_time_series_plot
@@ -582,7 +584,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Absolute WIS (US National only)", 
         f"{season}_absolute_wis_heatmap_US.png", 
         save_dir, model_missing_counts,
-        location_filter="US", wis_type="wis_total"
+        location_filter="US", scoring_metric="wis_total"
     )
 
     # 1b) Heatmap of relative WIS - US only  
@@ -591,7 +593,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Relative WIS vs Baseline (US National only)",
         f"{season}_relative_wis_heatmap_US.png", 
         save_dir, model_missing_counts,
-        center=1, vmin=0, vmax=2, location_filter="US", wis_type="wis_total"
+        center=1, vmin=0, vmax=2, location_filter="US", scoring_metric="wis_total"
     )
 
     # 1c) Heatmap of absolute WIS - All locations summed
@@ -600,7 +602,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Absolute WIS (All 51 locations summed)",
         f"{season}_absolute_wis_heatmap_AllSum.png", 
         save_dir, model_missing_counts,
-        location_filter="ALL", wis_type="wis_total"
+        location_filter="ALL", scoring_metric="wis_total"
     )
 
     # 1d) Heatmap of relative WIS - All locations summed
@@ -609,7 +611,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Relative WIS vs Baseline (All 51 locations summed)",
         f"{season}_relative_wis_heatmap_AllSum.png", 
         save_dir, model_missing_counts,
-        center=1, vmin=0, vmax=2, location_filter="ALL", wis_type="wis_total"
+        center=1, vmin=0, vmax=2, location_filter="ALL", scoring_metric="wis_total"
     )
 
     # 2a) WIS components - US only
@@ -634,7 +636,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Absolute WIS Over Time (US National)",
         f"{season}_absolute_timeseries_US.png",
         save_dir, model_missing_counts,
-        location_filter="US", wis_type="wis_total", is_relative=False
+        location_filter="US", scoring_metric="wis_total", is_relative=False
     )
     
     # 3b) Relative time series - US only
@@ -643,7 +645,7 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         f"{season}: Relative WIS Over Time (US National)",
         f"{season}_relative_timeseries_US.png", 
         save_dir, model_missing_counts,
-        location_filter="US", wis_type="wis_total", is_relative=True
+        location_filter="US", scoring_metric="wis_total", is_relative=True
     )
 
 
@@ -695,7 +697,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
     except Exception:
         # Fallback: no baseline present, just copy wis_total
-        all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
+        all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()
 
     # Create plots using evaluation_module
     create_plots(season, all_scores_t, all_scores_rel, dataset, save_dir, model_missing_counts)
@@ -800,7 +802,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
         all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
     except Exception:
         # Fallback: no baseline present, just copy wis_total
-        all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
+        all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()
     
     # Create plots for combined seasons
     season_label = "_".join(seasons)
