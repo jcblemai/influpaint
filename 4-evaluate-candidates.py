@@ -18,12 +18,16 @@ from typing import Dict, List, Tuple, Optional, Union
 from dataclasses import dataclass
 
 # Import our evaluation module
-from evaluation_module import (
-    ModelEvaluator, PlotConfig, GroupConfig,
+from evaluate_plot import (
+    ModelEvaluator,
+    PlotConfig,
+    GroupConfig,
     create_influpaint_vs_flusight_config,
     create_scenario_based_config,
-    create_config_based_config
+    create_config_based_config,
 )
+import evaluate_deprecated as evaluate_deprecated
+from evaluation_module import ForecastRecord, ForecastDataset, score_dataset, compute_relative_scores
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -74,71 +78,7 @@ class Config:
     STACK_COMPONENTS = ["wis_sharpness", "wis_overprediction", "wis_underprediction"]
 
 # %%
-# WIS scoring (adapted from evaluate.py)
-def weighted_interval_score_fast(
-    observations,
-    alphas,
-    q_dict,
-    weights=None,
-    percent=False,
-    check_consistency=True,
-):
-    if weights is None:
-        weights = np.array(alphas) / 2
-
-    if not all(alphas[i] <= alphas[i + 1] for i in range(len(alphas) - 1)):
-        raise ValueError("Alpha values must be sorted in ascending order.")
-
-    reversed_weights = list(reversed(weights))
-
-    lower_quantiles = [q_dict.get(alpha / 2) for alpha in alphas]
-    upper_quantiles = [q_dict.get(1 - (alpha / 2)) for alpha in reversed(alphas)]
-    if any(q is None for q in lower_quantiles) or any(q is None for q in upper_quantiles):
-        raise ValueError("Quantile dictionary does not include all necessary quantiles.")
-
-    lower_quantiles = np.vstack(lower_quantiles)
-    upper_quantiles = np.vstack(upper_quantiles)
-
-    if check_consistency and np.any(np.diff(np.vstack((lower_quantiles, upper_quantiles)), axis=0) < 0):
-        raise ValueError("Quantiles are not consistent.")
-
-    lower_q_alphas = (2 / np.array(alphas)).reshape((-1, 1))
-    upper_q_alphas = (2 / np.array(list(reversed(alphas)))).reshape((-1, 1))
-
-    sharpnesses = np.flip(upper_quantiles, axis=0) - lower_quantiles
-
-    lower_calibrations = np.clip(lower_quantiles - observations, a_min=0, a_max=None) * lower_q_alphas
-    upper_calibrations = np.clip(observations - upper_quantiles, a_min=0, a_max=None) * upper_q_alphas
-    calibrations = lower_calibrations + np.flip(upper_calibrations, axis=0)
-    upper_calibrations = np.flip(upper_calibrations, axis=0)
-
-    if percent:
-        # Not supported here to keep parity with evaluate.py
-        raise ValueError("percent=True not supported with calibration split")
-
-    totals = sharpnesses + calibrations
-
-    weights = np.array(weights).reshape((-1, 1))
-    sharpnesses_weighted = sharpnesses * weights
-    calibrations_weighted = calibrations * weights
-    upper_calibrations_weighted = upper_calibrations * weights
-    lower_calibrations_weighted = lower_calibrations * weights
-    totals_weighted = totals * weights
-
-    weights_sum = np.sum(weights)
-    sharpnesses_final = np.sum(sharpnesses_weighted, axis=0) / weights_sum
-    calibrations_final = np.sum(calibrations_weighted, axis=0) / weights_sum
-    upper_calibrations_final = np.sum(upper_calibrations_weighted, axis=0) / weights_sum
-    lower_calibrations_final = np.sum(lower_calibrations_weighted, axis=0) / weights_sum
-    totals_final = np.sum(totals_weighted, axis=0) / weights_sum
-
-    return (
-        totals_final,
-        sharpnesses_final,
-        calibrations_final,
-        lower_calibrations_final,
-        upper_calibrations_final,
-    )
+# WIS scoring handled in evaluate_deprecated.py
 
 
 # %%
@@ -310,400 +250,151 @@ def filter_forecast_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def score_Nwk_forecasts_hub(gt: pd.DataFrame, forecasts: pd.DataFrame) -> pd.DataFrame:
-    """Compute WIS and components for specified horizons in hub-format forecasts."""
-    # Restrict GT to locations/dates present in forecasts
-    f = filter_forecast_df(forecasts)
-    locations = sorted(f["location"].unique())
-    target_dates = sorted(f["target_end_date"].unique())
-
-    gt2 = gt[(gt["location"].isin(locations)) & (gt["date"].isin(target_dates))].copy()
-    gt_piv = gt2.pivot(index="date", columns="location", values="value").sort_index()
-
-    # alphas from available lower quantiles
-    qvals = sorted(f["output_type_id"].unique())
-    lower = [q for q in qvals if q <= 0.5]
-    alphas = np.array(lower) * 2
-
-    # Use only target dates present in ground truth
-    gt_dates = set(gt_piv.index)
-    available_dates = [d for d in target_dates if d in gt_dates]
-    if not available_dates:
-        # Helpful diagnostics
-        raise RuntimeError(
-            "No valid target dates aligned with ground truth. "
-            f"Forecast dates: {len(target_dates)}, GT dates intersect: 0"
-        )
-    all_targets = []
-    for target_date in available_dates:
-        sub = f[f["target_end_date"] == target_date]
-        q_dict = {}
-        q_levels = sorted(sub["output_type_id"].unique())
-        for q in q_levels:
-            vals = (
-                sub[sub["output_type_id"] == q]
-                .pivot(index="target_end_date", columns="location", values="value")
-                .reindex(columns=gt_piv.columns)
-                .loc[target_date]
-                .to_numpy()
-            )
-            q_dict[float(q)] = vals
-
-        obs = gt_piv.loc[target_date].to_numpy()
-        # mask to drop locations with missing obs or quantiles
-        masks = [~pd.isna(obs)]
-        for q in q_levels:
-            masks.append(~pd.isna(q_dict[float(q)]))
-        valid_mask = np.logical_and.reduce(masks)
-        if not np.any(valid_mask):
-            # Nothing valid for this date, skip
-            continue
-        obs_v = obs[valid_mask]
-        q_dict_v = {float(q): q_dict[float(q)][valid_mask] for q in q_levels}
-        (wis_total, wis_sharpness, wis_calibration, underprediction, overprediction) = weighted_interval_score_fast(
-            observations=obs_v,
-            alphas=alphas,
-            q_dict=q_dict_v,
-            weights=alphas / 2,
-        )
-
-        # Build a human-readable target label from the unique horizon
-        try:
-            uniq_h = pd.unique(sub["horizon"]).tolist()
-            h_label = int(uniq_h[0]) if len(uniq_h) == 1 else None
-        except Exception:
-            h_label = None
-
-        df = pd.DataFrame(
-            [wis_total, wis_sharpness, wis_calibration, underprediction, overprediction],
-            index=["wis_total", "wis_sharpness", "wis_calibration", "wis_underprediction", "wis_overprediction"],
-            columns=np.array(gt_piv.columns)[valid_mask],
-        )
-        df["target"] = f"{h_label} wk ahead" if h_label is not None else ""
-        df["target_end_date"] = target_date
-        all_targets.append(df)
-
-    if not all_targets:
-        raise RuntimeError("No valid target dates aligned with ground truth.")
-    return pd.concat(all_targets).reset_index(names="wis_type").set_index(["target", "target_end_date"])
+# Local score_Nwk_forecasts_hub removed; use evaluate_deprecated.score_Nwk_forecasts_hub
 
 
 # %%
-# Plotting helper functions
-def determine_model_color(model_name: str) -> str:
-    """Determine the color for a model based on its type."""
-    if model_name.startswith('i') and '::' in model_name:
-        return Config.PLOT_COLORS['influpaint']
-    else:
-        return Config.PLOT_COLORS['flusight']
+#! Plotting helpers moved to evaluate_plot.ModelEvaluator
 
 
-def create_model_labels_with_missing(models: List[str], model_missing_counts: Dict[str, int]) -> List[str]:
-    """Create y-tick labels with missing counts."""
-    labels = []
-    for model in models:
-        missing_count = model_missing_counts.get(model, 0)
-        if missing_count > 0:
-            if len(model) > 60:
-                # Split on "::" and wrap across lines for long model names
-                parts = model.split("::")
-                if len(parts) >= 6:
-                    line1 = "::".join(parts[:2])
-                    line2 = "::".join(parts[2:5]) 
-                    line3 = "::".join(parts[5:])
-                    labels.append(f"{line1}\n{line2}\n{line3} missing:{missing_count}")
-                else:
-                    labels.append(f"{model} missing:{missing_count}")
-            else:
-                labels.append(f"{model} missing:{missing_count}")
-        else:
-            if len(model) > 60:
-                parts = model.split("::")
-                if len(parts) >= 6:
-                    line1 = "::".join(parts[:2])
-                    line2 = "::".join(parts[2:5]) 
-                    line3 = "::".join(parts[5:])
-                    labels.append(f"{line1}\n{line2}\n{line3}")
-                else:
-                    labels.append(model)
-            else:
-                labels.append(model)
-    return labels
+#! Removed legacy evaluate_flusight_models in favor of collect_flusight_records
 
 
-def apply_model_colors_to_labels(ax, model_names: List[str], model_missing_counts: Dict[str, int]):
-    """Apply colors to y-tick labels based on model type and missing data."""
-    for i, label in enumerate(ax.get_yticklabels()):
-        model_name = model_names[i]
-        text = label.get_text()
-        
-        if "missing:" in text:
-            label.set_color(Config.PLOT_COLORS['missing'])
-        else:
-            model_color = determine_model_color(model_name)
-            label.set_color(model_color)
-
-
-def add_missing_count_annotations(ax, model_names: List[str], model_missing_counts: Dict[str, int]):
-    """Add red missing count annotations to the right of y-labels."""
-    for i, label in enumerate(ax.get_yticklabels()):
-        model_name = model_names[i]
-        text = label.get_text()
-        
-        if "missing:" in text:
-            # Split into lines and color the missing line red
-            lines = text.split('\n')
-            clean_text = '\n'.join([line for line in lines if not line.startswith('missing:')])
-            missing_line = next((line for line in lines if line.startswith('missing:')), None)
-            
-            label.set_text(clean_text)
-            if missing_line:
-                # Add red text for missing count
-                ax.text(-0.02, i, missing_line, color=Config.PLOT_COLORS['missing'], 
-                       va='center', fontsize=label.get_fontsize(), ha='right', 
-                       transform=ax.get_yaxis_transform())
-
-
-def create_heatmap_plot(data: pd.DataFrame, title: str, filename: str, save_dir: str, 
-                       model_missing_counts: Dict[str, int], cmap: str = "viridis", 
-                       center: float = None, vmin: float = None, vmax: float = None):
-    """Create a standardized heatmap plot."""
-    if data.empty or data.shape[1] == 0:
-        return
-        
-    # Sort by total score
-    order = data.sum(axis=1, skipna=True).sort_values().index
-    data_sorted = data.loc[order]
-    
-    # Create y-tick labels with missing counts
-    ytick_labels = create_model_labels_with_missing(data_sorted.index.tolist(), model_missing_counts)
-    
-    # Create plot
-    fig, ax = plt.subplots(figsize=(max(12, data_sorted.shape[1] * 0.5), max(8, data_sorted.shape[0] * 0.4)))
-    
-    # Create heatmap
-    if center is not None:
-        cmap_obj = sns.diverging_palette(150, 300, as_cmap=True, center="light")
-        sns.heatmap(data_sorted, annot=False, fmt=".2f", linewidths=0.5, ax=ax, 
-                   center=center, cmap=cmap_obj, vmin=vmin, vmax=vmax)
-    else:
-        sns.heatmap(data_sorted, annot=False, fmt=".2f", linewidths=0.5, ax=ax, cmap=cmap)
-    
-    # Set custom y-tick labels
-    ax.set_yticklabels([label.replace(" missing:", "\nmissing:") for label in ytick_labels])
-    
-    # Apply colors and missing annotations
-    apply_model_colors_to_labels(ax, data_sorted.index.tolist(), model_missing_counts)
-    add_missing_count_annotations(ax, data_sorted.index.tolist(), model_missing_counts)
-    
-    ax.set_title(title)
-    plt.tight_layout()
-    fig.savefig(os.path.join(save_dir, filename), dpi=200, bbox_inches='tight')
-    plt.close(fig)
-
-
-def evaluate_flusight_models(season: str, dates: List[dt.date], gt: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-    """Evaluate FluSight models for a season."""
+def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[ForecastRecord], Dict[str, int]]:
+    """Collect FluSight forecasts into ForecastRecord list and missing counts."""
     flusight_models = list_flusight_models(season)
-    scores = {}
-    
+    records: List[ForecastRecord] = []
+    missing_counts: Dict[str, int] = {}
     for model in flusight_models:
-        present_dates = []
-        model_scores = {}
-        
+        present = 0
         for d in dates:
             try:
                 df = load_flusight_forecast(season, model, d)
                 df = filter_forecast_df(df)
-                
-                # Check quantile completeness
-                required_q = Config.REQUIRED_QUANTILES
                 have = sorted(df["output_type_id"].unique().tolist())
-                missing = sorted(set(np.round(required_q, 6)) - set(np.round(have, 6)))
-                if missing:
+                missing_q = sorted(set(np.round(Config.REQUIRED_QUANTILES, 6)) - set(np.round(have, 6)))
+                if missing_q:
                     continue
-                    
-                wis_all = score_Nwk_forecasts_hub(gt, df)
-                model_scores[d] = wis_all
-                present_dates.append(d)
-                
-            except (FileNotFoundError, RuntimeError, AssertionError):
+                records.append(
+                    ForecastRecord(
+                        model=model,
+                        group="groupB",
+                        season=season,
+                        forecast_date=pd.to_datetime(d),
+                        df=df,
+                    )
+                )
+                present += 1
+            except Exception:
                 continue
-        
-        # Keep model if within missing date threshold
-        missing_count = len(dates) - len(present_dates)
-        if missing_count <= Config.ALLOW_MISSING_DATES_PER_MODEL and present_dates:
-            key = f"{model}!{missing_count}!"
-            scores[key] = pd.concat(model_scores, names=["forecast_date", "target", "target_end_date"])
-        else:
-            print(f"Dropping FluSight model {model}: missing={missing_count} (> {Config.ALLOW_MISSING_DATES_PER_MODEL}) or no valid scores")
-    
-    return scores
+        missing_counts[model] = len(dates) - present
+    keep = {m for m, miss in missing_counts.items() if miss <= Config.ALLOW_MISSING_DATES_PER_MODEL}
+    records = [r for r in records if r.model in keep]
+    missing_counts = {m: c for m, c in missing_counts.items() if m in keep}
+    return records, missing_counts
 
 
-def evaluate_influpaint_models(season: str, dates: List[dt.date], gt: pd.DataFrame, season_jobs: pd.DataFrame) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict]]:
-    """Evaluate InfluPaint models for a season. Returns (scores, failures)."""
+
+def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: pd.DataFrame) -> Tuple[List[ForecastRecord], Dict[str, int], Dict[str, Dict]]:
+    """Collect InfluPaint forecasts into ForecastRecord list, missing counts, and failures."""
     configs = sorted(season_jobs["config"].unique().tolist())
-    scores = {}
-    failures = {}
-    
-    # Find what CSVs actually exist and build proper run names
-    actual_models = {}  # proper_run_name -> {scores, failures, scenario_id, config, run_id}
-    
+    model_paths: Dict[str, Dict[dt.date, str]] = {}
     for config in configs:
         for d in dates:
             matches = find_influpaint_csvs(Config.INPAINT_RES_BASE, config, d)
             for run_name, path in matches:
-                if run_name not in actual_models:
-                    # Extract scenario_id from run_name to link back to expected jobs
-                    try:
-                        scenario_id = int(run_name.split("::")[0][1:])  # Remove 'i' prefix
-                        config_name = run_name.split("::")[-1]
-                        
-                        # Find matching run_id from jobs
-                        matching = season_jobs[
-                            (season_jobs["scenario_id"] == scenario_id) & 
-                            (season_jobs["config"] == config_name)
-                        ]
-                        run_id = matching.iloc[0]["run_id"] if not matching.empty else None
-                        
-                        actual_models[run_name] = {
-                            "scores": {}, 
-                            "failures": {},
-                            "scenario_id": scenario_id,
-                            "config": config_name, 
-                            "run_id": run_id
-                        }
-                    except (ValueError, IndexError):
-                        print(f"Warning: Could not parse scenario_id from {run_name}")
-                        continue
-                
-                try:
-                    df = pd.read_csv(path)
-                    # Normalize column names
-                    if "output_type" not in df.columns and "type" in df.columns:
-                        df = df.rename(columns={"type": "output_type"})
-                    if "output_type_id" not in df.columns and "quantile" in df.columns:
-                        df = df.rename(columns={"quantile": "output_type_id"})
-                    
-                    df["target_end_date"] = pd.to_datetime(df["target_end_date"]).dt.date
-                    df["output_type_id"] = pd.to_numeric(df["output_type_id"], errors="coerce")
-                    df["horizon"] = pd.to_numeric(df["horizon"], errors="coerce")
-                    df = filter_forecast_df(df)
-                    
-                    # Check quantile completeness
-                    required_q = Config.REQUIRED_QUANTILES
-                    have = sorted(df["output_type_id"].unique().tolist())
-                    missing = sorted(set(np.round(required_q, 6)) - set(np.round(have, 6)))
-                    if missing:
-                        actual_models[run_name]["failures"][d] = f"Missing quantiles {missing[:3]}{'...' if len(missing) > 3 else ''}"
-                        continue
-                    
-                    wis_all = score_Nwk_forecasts_hub(gt, df)
-                    actual_models[run_name]["scores"][d] = wis_all
-                    
-                except Exception as e:
-                    actual_models[run_name]["failures"][d] = f"Error: {str(e)[:50]}..."
-    
-    # Add completely missing scenarios
-    all_expected_jobs = season_jobs[["scenario_id", "config"]].drop_duplicates()
-    found_scenarios = set()
-    for run_name in actual_models.keys():
+                model_paths.setdefault(run_name, {})[d] = path
+
+    records: List[ForecastRecord] = []
+    missing_counts: Dict[str, int] = {}
+    failures: Dict[str, Dict] = {}
+
+    for run_name, by_date in model_paths.items():
+        present = 0
+        failure_details = {}
+        for d in dates:
+            if d not in by_date:
+                failure_details[d] = "No CSV found"
+                continue
+            path = by_date[d]
+            try:
+                df = pd.read_csv(path)
+                if "output_type" not in df.columns and "type" in df.columns:
+                    df = df.rename(columns={"type": "output_type"})
+                if "output_type_id" not in df.columns and "quantile" in df.columns:
+                    df = df.rename(columns={"quantile": "output_type_id"})
+                df["target_end_date"] = pd.to_datetime(df["target_end_date"]).dt.date
+                df["output_type_id"] = pd.to_numeric(df["output_type_id"], errors="coerce")
+                df["horizon"] = pd.to_numeric(df["horizon"], errors="coerce")
+                df = filter_forecast_df(df)
+                have = sorted(df["output_type_id"].unique().tolist())
+                missing_q = sorted(set(np.round(Config.REQUIRED_QUANTILES, 6)) - set(np.round(have, 6)))
+                if missing_q:
+                    failure_details[d] = f"Missing quantiles {missing_q[:3]}{'...' if len(missing_q) > 3 else ''}"
+                    continue
+                records.append(
+                    ForecastRecord(
+                        model=run_name,
+                        group="groupA",
+                        season=season,
+                        forecast_date=pd.to_datetime(d),
+                        df=df,
+                    )
+                )
+                present += 1
+            except Exception as e:
+                failure_details[d] = f"Error: {str(e)[:80]}"
+
+        missing = len(dates) - present
+        missing_counts[run_name] = missing
+        failures[run_name] = {
+            "present_count": present,
+            "missing_count": missing,
+            "failure_details": failure_details,
+            "kept": (missing <= Config.ALLOW_MISSING_DATES_PER_MODEL) and (present > 0),
+        }
+
+    # Models expected but not discovered at all
+    expected = season_jobs[["scenario_id", "config"]].drop_duplicates()
+    found = set()
+    for name in model_paths:
         try:
-            scenario_id = int(run_name.split("::")[0][1:])
-            config_name = run_name.split("::")[-1] 
-            found_scenarios.add((scenario_id, config_name))
-        except:
-            continue
-    
-    for _, row in all_expected_jobs.iterrows():
-        scenario_id = row["scenario_id"]
-        config = row["config"]
-        
-        if (scenario_id, config) not in found_scenarios:
-            scenario_jobs_subset = season_jobs[
-                (season_jobs["scenario_id"] == scenario_id) & 
-                (season_jobs["config"] == config)
-            ]
-            if not scenario_jobs_subset.empty:
-                run_id = scenario_jobs_subset.iloc[0]["run_id"]
-                missing_run_name = f"i{scenario_id}::missing_model::{config}"
-                
-                failure_details = {}
-                for d in dates:
-                    if d in scenario_jobs_subset["date"].values:
-                        failure_details[d] = f"No CSV found for scenario {scenario_id}, config {config} on {d}"
-                
-                if failure_details:
-                    actual_models[missing_run_name] = {
-                        "scores": {},
-                        "failures": failure_details,
-                        "scenario_id": scenario_id,
-                        "config": config,
-                        "run_id": run_id
-                    }
-    
-    # Process each model: add to scores if good enough, track all failures
-    for run_name, data in actual_models.items():
-        present_count = len(data["scores"])
-        total_expected = len([d for d in dates if d in season_jobs[
-            (season_jobs["scenario_id"] == data["scenario_id"]) & 
-            (season_jobs["config"] == data["config"])
-        ]["date"].values])
-        missing_count = total_expected - present_count
-        
-        # Track failures for ALL models (both kept and dropped)
-        if missing_count > 0 or data["failures"]:
-            failure_details = data["failures"].copy()
-            # Add missing dates that had no CSV found and no recorded failure
-            expected_dates_for_model = season_jobs[
-                (season_jobs["scenario_id"] == data["scenario_id"]) & 
-                (season_jobs["config"] == data["config"]) &
-                (season_jobs["season"] == season)
-            ]["date"].values
-            
-            for d in expected_dates_for_model:
-                if d not in data["scores"] and d not in failure_details:
-                    failure_details[d] = f"No CSV found for {run_name} on {d}"
-            
-            failures[run_name] = {
-                'present_count': present_count,
-                'missing_count': missing_count,
-                'present_dates': sorted(data["scores"].keys()),
-                'failure_details': failure_details,
-                'kept': missing_count <= Config.ALLOW_MISSING_DATES_PER_MODEL and present_count > 0
+            scenario_id = int(name.split("::")[0][1:])
+            config_name = name.split("::")[-1]
+            found.add((scenario_id, config_name))
+        except Exception:
+            pass
+    for _, row in expected.iterrows():
+        key = (row["scenario_id"], row["config"]) 
+        if key not in found:
+            name = f"i{row['scenario_id']}::{row['config']}"
+            missing_counts[name] = len(dates)
+            failures[name] = {
+                "present_count": 0,
+                "missing_count": len(dates),
+                "failure_details": {d: "No CSV found" for d in dates},
+                "kept": False,
             }
-        
-        # Keep model if within threshold
-        if missing_count <= Config.ALLOW_MISSING_DATES_PER_MODEL and present_count > 0:
-            key = f"{run_name}!{missing_count}!"
-            scores[key] = pd.concat(data["scores"], names=["forecast_date", "target", "target_end_date"])
-        else:
-            print(f"Dropping InfluPaint model {run_name}: present={present_count}, missing={missing_count} (> {Config.ALLOW_MISSING_DATES_PER_MODEL})")
-    
-    return scores, failures
+
+    keep = {m for m, miss in missing_counts.items() if miss <= Config.ALLOW_MISSING_DATES_PER_MODEL}
+    records = [r for r in records if r.model in keep]
+    missing_counts = {m: c for m, c in missing_counts.items() if m in keep}
+    failures = {m: v for m, v in failures.items() if m in keep or v.get("present_count", 0) == 0}
+    return records, missing_counts, failures
 
 
-def evaluate_models(season: str, dates: List[dt.date]) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict]]:
-    """Evaluate all models (FluSight + InfluPaint) for a season. Returns (scores, failures)."""
-    gt = load_ground_truth(season)
-    
-    # Get InfluPaint configs for this season
+def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[ForecastDataset, Dict[str, int], Dict[str, Dict]]:
+    """Load forecasts for both groups and return a ForecastDataset plus missing counts and failures."""
     jobs = read_jobs()
     season_jobs = jobs[jobs["season"] == season]
-    
-    # Evaluate FluSight models
-    flusight_scores = evaluate_flusight_models(season, dates, gt)
-    
-    # Evaluate InfluPaint models  
-    influpaint_scores, influpaint_failures = evaluate_influpaint_models(season, dates, gt, season_jobs)
-    
-    # Combine results
-    scores = {}
-    scores.update(flusight_scores)
-    scores.update(influpaint_scores)
-    
-    return scores, influpaint_failures
+    flusight_recs, flusight_missing = collect_flusight_records(season, dates)
+    influpaint_recs, influpaint_missing, influpaint_failures = collect_influpaint_records(season, dates, season_jobs)
+    dataset = ForecastDataset(records=flusight_recs + influpaint_recs)
+    missing_counts = {**flusight_missing, **influpaint_missing}
+    return dataset, missing_counts, influpaint_failures
+
+
+#! Legacy evaluate_models removed; dataset-based loader is used instead
 
 
 def create_failed_jobs_file(season: str, failures: Dict, save_dir: str):
@@ -992,22 +683,19 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
     os.makedirs(save_dir, exist_ok=True)
     
     try:
-        # Evaluate all models
-        scores, failures = evaluate_models(season, dates)
-        
-        if not scores:
-            raise RuntimeError(f"No models scored for season {season}")
-        
-        logging.info(f"Successfully scored {len(scores)} models for season {season}")
+        dataset, model_missing_counts, failures = build_dataset_for_season(season, dates)
+        if not dataset.records:
+            raise RuntimeError(f"No forecasts found for season {season}")
+        gt = load_ground_truth(season)
+        all_scores_t = score_dataset(dataset, gt)
+        if all_scores_t.empty:
+            raise RuntimeError(f"Scoring produced no results for season {season}")
+        logging.info(f"Successfully scored {len(all_scores_t['model'].unique())} models for season {season}")
     except Exception as e:
         logging.error(f"Error evaluating models for season {season}: {str(e)}")
         raise
 
-    # Combine all scores
-    all_scores = pd.concat(scores, names=["model", "forecast_date", "target", "target_end_date"])
-    
-    # Log model counts
-    kept_models = sorted(set(all_scores.reset_index()["model"]))
+    kept_models = sorted(all_scores_t["model"].unique())
     print(f"Kept models ({season}): {len(kept_models)}")
     
     # Report InfluPaint failures and create failed jobs file
@@ -1017,55 +705,15 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         print(f"\nDetailed InfluPaint failure report for {season}:")
         create_failed_jobs_file(season, influpaint_failures, save_dir)
 
-    # Clean up model names and extract missing counts for display
-    model_missing_counts = {}
-    clean_scores = {}
-    for model_key, data in scores.items():
-        # Extract missing count from model key (format: "model_name!missing_count!")
-        if "!" in model_key:
-            parts = model_key.split("!")
-            clean_model_name = parts[0]
-            missing_count = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        else:
-            clean_model_name = model_key
-            missing_count = 0
-        
-        model_missing_counts[clean_model_name] = missing_count
-        clean_scores[clean_model_name] = data
-
-    # Combine all scores with clean names
-    all_scores = pd.concat(clean_scores, names=["model", "forecast_date", "target", "target_end_date"])
-    
-    # Transform to long format for plotting
-    all_scores_t = all_scores.reset_index()
-    id_vars = ["model", "forecast_date", "target", "target_end_date", "wis_type"]
-    location_columns = [c for c in all_scores_t.columns if c not in id_vars]
-    all_scores_t = pd.melt(
-        all_scores_t,
-        id_vars=id_vars,
-        value_vars=location_columns,
-        var_name="location",
-        value_name="value",
-    )
+    # all_scores_t is already tidy from evaluation_module.score_dataset
 
     # Calculate relative scores vs baseline (use Flusight-Baseline specifically)
-    baseline_keys = sorted([m for m in all_scores_t["model"].unique() if "Flusight-baseline" in m or "FluSight-baseline" in m])
-    baseline_model = baseline_keys[0] if baseline_keys else None
-    if baseline_model is not None:
-        baseline = all_scores_t[all_scores_t["model"] == baseline_model]
-        all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
-        baseline_cols = ["forecast_date", "target", "target_end_date", "wis_type", "location"]
-        # Use left merge to keep all rows from models even when baseline missing
-        all_scores_rel = pd.merge(
-            all_scores_rel,
-            baseline[baseline_cols + ["value"]],
-            on=baseline_cols,
-            suffixes=("", "_baseline"),
-            how="left",
-        )
-        all_scores_rel["value"] = all_scores_rel["value"] / all_scores_rel["value_baseline"]
-        all_scores_rel = all_scores_rel.drop(columns=["value_baseline"])
-    else:
+    baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
+    baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
+    try:
+        all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
+    except Exception:
+        # Fallback: no baseline present, just copy wis_total
         all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
 
     # Create plots with default grouping (InfluPaint vs FluSight)
@@ -1074,525 +722,15 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
     create_plots(season, all_scores_t, all_scores_rel, save_dir, model_missing_counts, 
                 default_group_config, evaluator)
 
-    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel}
+    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "model_missing_counts": model_missing_counts}
 
 
 # %%
 def create_combined_plots(all_seasons_results: Dict[str, Dict], save_dir: str):
     """Create combined plots across all seasons."""
-    os.makedirs(save_dir, exist_ok=True)
-    
-    # Combine data from all seasons
-    combined_scores = []
-    combined_rel_scores = []
-    all_model_missing_counts = {}
-    
-    for season, season_data in all_seasons_results.items():
-        scores_df = season_data["all_scores"].copy()
-        rel_df = season_data["all_scores_rel"].copy()
-        
-        # Add season column
-        scores_df["season"] = season
-        rel_df["season"] = season
-        
-        combined_scores.append(scores_df)
-        combined_rel_scores.append(rel_df)
-        
-        # Extract missing counts from season results (from the individual season processing)
-        # We'll need to track these from the individual season results
-        pass
-    
-    # Combine all data
-    all_scores_combined = pd.concat(combined_scores, ignore_index=True)
-    all_scores_rel_combined = pd.concat(combined_rel_scores, ignore_index=True)
-    
-    # For combined plots, we'll aggregate missing counts across seasons
-    # Count total missing dates per model across all seasons
-    # We need to get this information from the original evaluation
-    model_total_missing = {}
-    
-    # Get total expected dates across all seasons
-    jobs = read_jobs()
-    total_expected_dates_by_season = {}
-    for season in all_seasons_results.keys():
-        season_jobs = jobs[jobs["season"] == season]
-        total_expected_dates_by_season[season] = len(season_jobs["date"].unique())
-    
-    # For each model that appears in the results, calculate missing dates
-    all_models = set()
-    for season_data in all_seasons_results.values():
-        all_models.update(season_data["all_scores"]["model"].unique())
-    
-    for model in all_models:
-        total_missing = 0
-        total_expected = 0
-        
-        for season in all_seasons_results.keys():
-            season_data = all_seasons_results[season]["all_scores"]
-            season_models = season_data["model"].unique()
-            expected_dates_this_season = total_expected_dates_by_season[season]
-            
-            if model in season_models:
-                # Count actual dates for this model in this season
-                model_dates = len(season_data[season_data["model"] == model]["forecast_date"].unique())
-                missing_this_season = expected_dates_this_season - model_dates
-                total_missing += missing_this_season
-                total_expected += expected_dates_this_season
-            else:
-                # Model completely missing from this season
-                total_missing += expected_dates_this_season
-                total_expected += expected_dates_this_season
-        
-        model_total_missing[model] = total_missing
-    
-    print(f"Creating combined plots across {len(all_seasons_results)} seasons...")
-    
-    # 1a) Combined Absolute Heatmap - All locations summed, all seasons
-    abs_combined = all_scores_combined[all_scores_combined["wis_type"] == "wis_total"]
-    tp_abs_combined = (
-        abs_combined
-        .groupby(["model", "season", "forecast_date", "target"], as_index=False)["value"].sum()
-        .pivot_table(index=["model"], columns=["season", "forecast_date", "target"], values="value", aggfunc="mean")
-        .fillna(np.nan)
-    )
-    
-    if tp_abs_combined.shape[1] > 0:
-        order = tp_abs_combined.sum(axis=1, skipna=True).sort_values().index
-        tp_abs_combined = tp_abs_combined.loc[order]
-        
-        # Create y-tick labels with combined missing counts
-        ytick_labels = []
-        for model in tp_abs_combined.index:
-            missing_count = model_total_missing.get(model, 0)
-            if missing_count > 0:
-                ytick_labels.append(f"{model} missing:{missing_count}")
-            else:
-                ytick_labels.append(model)
-        
-        f, ax = plt.subplots(figsize=(max(16, tp_abs_combined.shape[1] * 0.3), max(10, tp_abs_combined.shape[0] * 0.4)))
-        sns.heatmap(tp_abs_combined, annot=False, fmt=".2f", linewidths=0.5, ax=ax, cmap="viridis")
-        
-        # Color model names by type and add red missing counts
-        ax.set_yticklabels([label.replace(" missing:", "\nmissing:") for label in ytick_labels])
-        
-        for i, label in enumerate(ax.get_yticklabels()):
-            model_name = tp_abs_combined.index[i]
-            text = label.get_text()
-            
-            # Determine model color: InfluPaint (green) vs FluSight (blue)
-            model_color = 'green' if model_name.startswith('i') and '::' in model_name else 'blue'
-            label.set_color(model_color)
-            
-            if "missing:" in text:
-                # Split into lines and color the missing line red
-                lines = text.split('\n')
-                clean_text = '\n'.join([line for line in lines if not line.startswith('missing:')])
-                missing_line = next((line for line in lines if line.startswith('missing:')), None)
-                
-                label.set_text(clean_text)
-                if missing_line:
-                    # Add red text for missing count
-                    ax.text(-0.02, i, missing_line, color='red', va='center', 
-                           fontsize=label.get_fontsize(), ha='right', transform=ax.get_yaxis_transform())
-        
-        ax.set_title("All Seasons Combined: Absolute WIS (All locations summed)")
-        plt.tight_layout()
-        f.savefig(os.path.join(save_dir, "all_seasons_absolute_wis_heatmap.png"), dpi=200, bbox_inches='tight')
-        plt.close(f)
-    
-    # 1b) Combined Relative Heatmap - All locations summed, all seasons
-    tp_combined = (
-        all_scores_rel_combined
-        .groupby(["model", "season", "forecast_date", "target"], as_index=False)["value"].sum()
-        .pivot_table(index=["model"], columns=["season", "forecast_date", "target"], values="value", aggfunc="mean")
-        .fillna(np.nan)
-    )
-    
-    if tp_combined.shape[1] > 0:
-        order = tp_combined.sum(axis=1, skipna=True).sort_values().index
-        tp_combined = tp_combined.loc[order]
-        
-        # Create y-tick labels with combined missing counts
-        ytick_labels = []
-        for model in tp_combined.index:
-            missing_count = model_total_missing.get(model, 0)
-            if missing_count > 0:
-                ytick_labels.append(f"{model} missing:{missing_count}")
-            else:
-                ytick_labels.append(model)
-        
-        f, ax = plt.subplots(figsize=(max(16, tp_combined.shape[1] * 0.3), max(10, tp_combined.shape[0] * 0.4)))
-        cmap = sns.diverging_palette(150, 300, as_cmap=True, center="light")
-        sns.heatmap(tp_combined, annot=False, fmt=".2f", linewidths=0.5, ax=ax, center=1, cmap=cmap, vmin=0, vmax=2)
-        
-        # Color model names by type and add red missing counts
-        ax.set_yticklabels([label.replace(" missing:", "\nmissing:") for label in ytick_labels])
-        
-        for i, label in enumerate(ax.get_yticklabels()):
-            model_name = tp_combined.index[i]
-            text = label.get_text()
-            
-            # Determine model color: InfluPaint (green) vs FluSight (blue)
-            model_color = 'green' if model_name.startswith('i') and '::' in model_name else 'blue'
-            label.set_color(model_color)
-            
-            if "missing:" in text:
-                # Split into lines and color the missing line red
-                lines = text.split('\n')
-                clean_text = '\n'.join([line for line in lines if not line.startswith('missing:')])
-                missing_line = next((line for line in lines if line.startswith('missing:')), None)
-                
-                label.set_text(clean_text)
-                if missing_line:
-                    # Add red text for missing count
-                    ax.text(-0.02, i, missing_line, color='red', va='center', 
-                           fontsize=label.get_fontsize(), ha='right', transform=ax.get_yaxis_transform())
-        
-        ax.set_title("All Seasons Combined: Relative WIS vs Baseline (All locations summed)")
-        plt.tight_layout()
-        f.savefig(os.path.join(save_dir, "all_seasons_relative_wis_heatmap.png"), dpi=200, bbox_inches='tight')
-        plt.close(f)
-    
-    # 2) Combined WIS Components - All locations summed, all seasons
-    comp_combined = (
-        all_scores_combined.groupby(["model", "wis_type"], as_index=False)["value"].sum()
-        .pivot(index="model", columns="wis_type", values="value")
-        .fillna(0.0)
-    )
-    comp_combined = comp_combined.sort_values("wis_total") if "wis_total" in comp_combined.columns else comp_combined
-    to_plot_combined = comp_combined[[c for c in ["wis_total", "wis_sharpness", "wis_calibration", "wis_overprediction", "wis_underprediction"] if c in comp_combined.columns]]
-    
-    if not to_plot_combined.empty:
-        fig, axes = plt.subplots(1, to_plot_combined.shape[1], figsize=(4 * to_plot_combined.shape[1], max(10, 0.3 * len(to_plot_combined))))
-        if to_plot_combined.shape[1] == 1:
-            axes = [axes]
-            
-        for ax, col in zip(axes, to_plot_combined.columns):
-            ax.scatter(to_plot_combined[col], np.arange(len(to_plot_combined)), s=8)
-            ax.set_yticks(np.arange(len(to_plot_combined)))
-            
-            # Create labels with combined missing counts
-            labels = []
-            for model in to_plot_combined.index:
-                missing_count = model_total_missing.get(model, 0)
-                
-                if missing_count > 0:
-                    if len(model) > 60:
-                        # Split on "::" and wrap across 2-3 lines
-                        parts = model.split("::")
-                        if len(parts) >= 6:  # Full model with all components
-                            line1 = "::".join(parts[:2])
-                            line2 = "::".join(parts[2:5]) 
-                            line3 = "::".join(parts[5:])
-                            wrapped_label = f"{line1}\n{line2}\n{line3} missing:{missing_count}"
-                        else:
-                            wrapped_label = f"{model} missing:{missing_count}"
-                    else:
-                        wrapped_label = f"{model} missing:{missing_count}"
-                else:
-                    if len(model) > 60:
-                        # Split on "::" and wrap across 2-3 lines
-                        parts = model.split("::")
-                        if len(parts) >= 6:  # Full model with all components
-                            line1 = "::".join(parts[:2])
-                            line2 = "::".join(parts[2:5]) 
-                            line3 = "::".join(parts[5:])
-                            wrapped_label = f"{line1}\n{line2}\n{line3}"
-                        else:
-                            wrapped_label = model
-                    else:
-                        wrapped_label = model
-                labels.append(wrapped_label)
-            
-            ax.set_yticklabels(labels, fontsize=6)
-            
-            # Color based on model type and missing data
-            for i, label in enumerate(ax.get_yticklabels()):
-                model_name = to_plot_combined.index[i]
-                
-                if "missing:" in label.get_text():
-                    # Color the entire label red if it has missing data
-                    label.set_color('red')
-                else:
-                    # Color based on model type: InfluPaint (green) vs FluSight (blue)
-                    model_color = 'green' if model_name.startswith('i') and '::' in model_name else 'blue'
-                    label.set_color(model_color)
-                
-            ax.set_title(col)
-        
-        fig.suptitle("All Seasons Combined: WIS Components (All locations summed)")
-        plt.tight_layout()
-        fig.savefig(os.path.join(save_dir, "all_seasons_wis_components.png"), dpi=200)
-        plt.close(fig)
-    
-    # 3) Stacked plot - WIS components breakdown
-    comp_combined_stack = (
-        all_scores_combined.groupby(["model", "wis_type"], as_index=False)["value"].sum()
-        .pivot(index="model", columns="wis_type", values="value")
-        .fillna(0.0)
-    )
-    
-    # Get components for stacking (excluding total and calibration since calibration includes both over/under)
-    available_components = [c for c in Config.STACK_COMPONENTS if c in comp_combined_stack.columns]
-    
-    if available_components and not comp_combined_stack.empty:
-        # Sort by total WIS
-        if "wis_total" in comp_combined_stack.columns:
-            comp_combined_stack = comp_combined_stack.sort_values("wis_total")
-        
-        # Select top models for readability (e.g., top 20)
-        if len(comp_combined_stack) > 20:
-            comp_combined_stack = comp_combined_stack.tail(20)  # Get worst performing (highest WIS)
-        
-        fig, ax = plt.subplots(figsize=(12, max(8, len(comp_combined_stack) * 0.4)))
-        
-        # Create stacked bar chart
-        bottom = np.zeros(len(comp_combined_stack))
-        colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99']  # Different colors for components
-        
-        for i, component in enumerate(available_components):
-            values = comp_combined_stack[component].values
-            bars = ax.barh(range(len(comp_combined_stack)), values, left=bottom, 
-                          label=component.replace('wis_', '').title(), color=colors[i % len(colors)])
-            bottom += values
-        
-        # Customize plot
-        ax.set_yticks(range(len(comp_combined_stack)))
-        
-        # Create labels with missing counts
-        labels = []
-        for model in comp_combined_stack.index:
-            missing_count = model_total_missing.get(model, 0)
-            if len(model) > 60:
-                # Simplified label for stacked plot
-                parts = model.split("::")
-                if len(parts) >= 2:
-                    short_label = f"{parts[0]}::{parts[-1]}"  # scenario::config
-                else:
-                    short_label = model
-            else:
-                short_label = model
-                
-            if missing_count > 0:
-                labels.append(f"{short_label} missing:{missing_count}")
-            else:
-                labels.append(short_label)
-        
-        ax.set_yticklabels(labels, fontsize=8)
-        
-        # Color labels
-        for i, label in enumerate(ax.get_yticklabels()):
-            model_name = comp_combined_stack.index[i]
-            if "missing:" in label.get_text():
-                label.set_color('red')
-            else:
-                model_color = 'green' if model_name.startswith('i') and '::' in model_name else 'blue'
-                label.set_color(model_color)
-        
-        ax.set_xlabel('WIS Score')
-        ax.set_title('All Seasons Combined: WIS Components Breakdown (Stacked)')
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        
-        plt.tight_layout()
-        fig.savefig(os.path.join(save_dir, "all_seasons_wis_stacked.png"), dpi=200, bbox_inches='tight')
-        plt.close(fig)
-    
-    # 4) Time series plot - Performance over forecast dates (all seasons, all dates)
-    # Show complete time series for all seasons to properly visualize missing data
-    timeseries_data = []
-    all_forecast_dates = set()
-    
-    for season, season_data in all_seasons_results.items():
-        season_dates = sorted(season_data["all_scores_rel"]["forecast_date"].unique())
-        all_forecast_dates.update(season_dates)
-        
-        for date in season_dates:
-            date_data = season_data["all_scores_rel"][
-                (season_data["all_scores_rel"]["forecast_date"] == date) &
-                (season_data["all_scores_rel"]["location"] == "US")  # US only for clarity
-            ].copy()
-            date_data["season"] = season
-            timeseries_data.append(date_data)
-    
-    if timeseries_data:
-        timeseries_combined = pd.concat(timeseries_data, ignore_index=True)
-        
-        # Get top models (by average performance)
-        model_avg_performance = timeseries_combined.groupby("model")["value"].mean().sort_values()
-        top_models = model_avg_performance.head(10).index.tolist()  # Best 10 models
-        
-        if top_models:
-            fig, ax = plt.subplots(figsize=(16, 10))
-            
-            # Create a complete timeline for all dates across all seasons
-            all_dates_sorted = sorted(all_forecast_dates)
-            date_to_index = {date: i for i, date in enumerate(all_dates_sorted)}
-            
-            # Create time series for each model with proper missing data handling
-            for model in top_models:
-                model_data = timeseries_combined[timeseries_combined["model"] == model].copy()
-                if not model_data.empty:
-                    # Create arrays for x and y values, allowing for gaps (missing data)
-                    x_vals = []
-                    y_vals = []
-                    
-                    # Group by season and forecast_date to get values
-                    for _, row in model_data.iterrows():
-                        date_idx = date_to_index[row["forecast_date"]]
-                        x_vals.append(date_idx)
-                        y_vals.append(row["value"])
-                    
-                    # Determine color and style
-                    color = 'green' if model.startswith('i') and '::' in model else 'blue'
-                    missing_count = model_total_missing.get(model, 0)
-                    
-                    # Create label with missing count
-                    if missing_count > 0:
-                        label = f"{model[:50]}... missing:{missing_count}" if len(model) > 50 else f"{model} missing:{missing_count}"
-                        linestyle = '--'  # Dashed line for models with missing data
-                        alpha = 0.7
-                    else:
-                        label = f"{model[:50]}..." if len(model) > 50 else model
-                        linestyle = '-'
-                        alpha = 1.0
-                    
-                    # Plot with gaps where data is missing (don't connect missing points)
-                    ax.plot(x_vals, y_vals, 
-                           marker='o', label=label, color=color, linestyle=linestyle, 
-                           linewidth=2, alpha=alpha, markersize=4)
-            
-            # Customize plot
-            # Create season boundaries and labels
-            season_boundaries = []
-            season_labels = []
-            current_season = None
-            season_start = 0
-            
-            for i, date in enumerate(all_dates_sorted):
-                # Determine which season this date belongs to
-                date_season = None
-                for season in all_seasons_results.keys():
-                    if date in all_seasons_results[season]["all_scores_rel"]["forecast_date"].values:
-                        date_season = season
-                        break
-                
-                if date_season != current_season:
-                    if current_season is not None:
-                        # Mark end of previous season
-                        season_boundaries.append(i - 0.5)
-                        # Add label at midpoint of season
-                        mid_point = (season_start + i - 1) / 2
-                        season_labels.append((mid_point, current_season))
-                    current_season = date_season
-                    season_start = i
-            
-            # Add final season label
-            if current_season is not None:
-                mid_point = (season_start + len(all_dates_sorted) - 1) / 2
-                season_labels.append((mid_point, current_season))
-            
-            # Add vertical lines between seasons
-            for boundary in season_boundaries:
-                ax.axvline(x=boundary, color='gray', linestyle=':', alpha=0.5)
-            
-            # Add season labels at top
-            for pos, season in season_labels:
-                ax.text(pos, ax.get_ylim()[1], season, ha='center', va='bottom', 
-                       fontweight='bold', fontsize=10)
-            
-            # Set x-axis ticks and labels (sample every ~10th date for readability)
-            tick_indices = list(range(0, len(all_dates_sorted), max(1, len(all_dates_sorted)//20)))
-            tick_labels = [str(all_dates_sorted[i]) for i in tick_indices]
-            ax.set_xticks(tick_indices)
-            ax.set_xticklabels(tick_labels, rotation=45, ha='right')
-            
-            ax.axhline(y=1, color='red', linestyle=':', alpha=0.7, label='Baseline (WIS=1)')
-            ax.set_ylabel('Relative WIS (vs Flusight-Baseline)')
-            ax.set_title('All Seasons: Relative Performance Over Time (US National)\nMissing data shown as gaps')
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-            ax.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            fig.savefig(os.path.join(save_dir, "all_seasons_relative_time_series.png"), dpi=200, bbox_inches='tight')
-            plt.close(fig)
-            
-            # Create absolute time series as well
-            abs_timeseries_data = []
-            for season, season_data in all_seasons_results.items():
-                season_dates = sorted(season_data["all_scores"]["forecast_date"].unique())
-                
-                for date in season_dates:
-                    date_data = season_data["all_scores"][
-                        (season_data["all_scores"]["forecast_date"] == date) &
-                        (season_data["all_scores"]["location"] == "US") &
-                        (season_data["all_scores"]["wis_type"] == "wis_total")
-                    ].copy()
-                    date_data["season"] = season
-                    abs_timeseries_data.append(date_data)
-            
-            if abs_timeseries_data:
-                abs_timeseries_combined = pd.concat(abs_timeseries_data, ignore_index=True)
-                abs_top_models = abs_timeseries_combined.groupby("model")["value"].mean().sort_values().head(10).index.tolist()
-                
-                if abs_top_models:
-                    fig, ax = plt.subplots(figsize=(16, 10))
-                    
-                    # Create time series for each model with proper missing data handling
-                    for model in abs_top_models:
-                        model_data = abs_timeseries_combined[abs_timeseries_combined["model"] == model].copy()
-                        if not model_data.empty:
-                            # Create arrays for x and y values, allowing for gaps (missing data)
-                            x_vals = []
-                            y_vals = []
-                            
-                            # Group by season and forecast_date to get values
-                            for _, row in model_data.iterrows():
-                                date_idx = date_to_index[row["forecast_date"]]
-                                x_vals.append(date_idx)
-                                y_vals.append(row["value"])
-                            
-                            # Determine color and style
-                            color = 'green' if model.startswith('i') and '::' in model else 'blue'
-                            missing_count = model_total_missing.get(model, 0)
-                            
-                            # Create label with missing count
-                            if missing_count > 0:
-                                label = f"{model[:50]}... missing:{missing_count}" if len(model) > 50 else f"{model} missing:{missing_count}"
-                                linestyle = '--'  # Dashed line for models with missing data
-                                alpha = 0.7
-                            else:
-                                label = f"{model[:50]}..." if len(model) > 50 else model
-                                linestyle = '-'
-                                alpha = 1.0
-                            
-                            # Plot with gaps where data is missing (don't connect missing points)
-                            ax.plot(x_vals, y_vals, 
-                                   marker='o', label=label, color=color, linestyle=linestyle, 
-                                   linewidth=2, alpha=alpha, markersize=4)
-                    
-                    # Add season boundaries and labels (same as relative plot)
-                    for boundary in season_boundaries:
-                        ax.axvline(x=boundary, color='gray', linestyle=':', alpha=0.5)
-                    
-                    for pos, season in season_labels:
-                        ax.text(pos, ax.get_ylim()[1], season, ha='center', va='bottom', 
-                               fontweight='bold', fontsize=10)
-                    
-                    # Set x-axis ticks and labels
-                    ax.set_xticks(tick_indices)
-                    ax.set_xticklabels(tick_labels, rotation=45, ha='right')
-                    
-                    ax.set_ylabel('Absolute WIS')
-                    ax.set_title('All Seasons: Absolute Performance Over Time (US National)\nMissing data shown as gaps')
-                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-                    ax.grid(True, alpha=0.3)
-                    
-                    plt.tight_layout()
-                    fig.savefig(os.path.join(save_dir, "all_seasons_absolute_time_series.png"), dpi=200, bbox_inches='tight')
-                    plt.close(fig)
-    
-    print(f"Combined plots saved to: {save_dir}")
-
+    evaluator = ModelEvaluator()
+    evaluator.create_combined_plots(all_seasons_results, save_dir)
+    return
 
 def evaluate_with_custom_grouping(group_config: GroupConfig, suffix: str = ""):
     """
@@ -1626,18 +764,8 @@ def evaluate_with_custom_grouping(group_config: GroupConfig, suffix: str = ""):
         custom_save_dir = os.path.join(save_dir, "custom_grouping")
         os.makedirs(custom_save_dir, exist_ok=True)
         
-        # Get model missing counts - need to extract from the scoring process
-        scores, failures = evaluate_models(season, dates)
-        model_missing_counts = {}
-        for model_key in scores.keys():
-            if "!" in model_key:
-                parts = model_key.split("!")
-                clean_model_name = parts[0]
-                missing_count = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-            else:
-                clean_model_name = model_key
-                missing_count = 0
-            model_missing_counts[clean_model_name] = missing_count
+        # Get model missing counts from the season_results
+        model_missing_counts = season_results.get("model_missing_counts", {})
         
         # Create custom plots
         create_plots(season, season_results["all_scores"], season_results["all_scores_rel"], 
@@ -1663,6 +791,81 @@ def main():
         save_dir = os.path.join("results", f"evaluate2_{season}")
         print(f"Scoring season {season} on {len(dates)} dates → {save_dir}")
         results[season] = evaluate_season(season, dates, save_dir)
+
+
+# Season-agnostic evaluation: evaluate an arbitrary list of dates spanning seasons
+def evaluate_dates(dates: List[dt.date], save_dir: str, label: str = None) -> Dict[str, pd.DataFrame]:
+    """
+    Evaluate arbitrary forecast dates (potentially spanning seasons) using the
+    same plotting logic. Dates are grouped by season internally; scoring is
+    done per season and then concatenated.
+
+    Args:
+        dates: List of reference dates to evaluate
+        save_dir: Output directory
+        label: Optional label to use on plots; defaults to min-to-max date span
+
+    Returns:
+        Dict with keys: all_scores (tidy absolute), all_scores_rel (relative)
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    jobs = read_jobs()
+    # Map provided dates to seasons via jobs file
+    dates_set = set(dates)
+    jobs_sub = jobs[jobs["date"].isin(dates_set)].copy()
+    if jobs_sub.empty:
+        raise RuntimeError("None of the provided dates matched the jobs configuration for season mapping.")
+
+    by_season = {s: sorted(g["date"].unique().tolist()) for s, g in jobs_sub.groupby("season")}
+
+    # Accumulate per-season results
+    tidy_abs = []
+    tidy_rel_parts = []
+    combined_missing: Dict[str, int] = {}
+    failures_all: Dict[str, Dict] = {}
+
+    for season, season_dates in by_season.items():
+        if season not in Config.FLUSIGHT_BASES:
+            continue
+        dataset, model_missing_counts, failures = build_dataset_for_season(season, season_dates)
+        if not dataset.records:
+            continue
+        gt = load_ground_truth(season)
+        scores_abs = score_dataset(dataset, gt)
+        if scores_abs.empty:
+            continue
+        # Choose baseline
+        kept_models = sorted(scores_abs["model"].unique())
+        baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
+        baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
+        try:
+            scores_rel = compute_relative_scores(scores_abs, baseline_model)
+        except Exception:
+            scores_rel = scores_abs[scores_abs["wis_type"] == "wis_total"].copy()
+
+        tidy_abs.append(scores_abs)
+        tidy_rel_parts.append(scores_rel)
+        # Combine missing counts across seasons
+        for k, v in model_missing_counts.items():
+            combined_missing[k] = combined_missing.get(k, 0) + int(v)
+        failures_all.update(failures)
+
+    if not tidy_abs:
+        raise RuntimeError("No scores could be computed for the provided dates.")
+
+    all_scores_t = pd.concat(tidy_abs, ignore_index=True)
+    all_scores_rel = pd.concat(tidy_rel_parts, ignore_index=True)
+
+    # Plot with a neutral label
+    if not label:
+        dmin, dmax = min(dates), max(dates)
+        label = f"custom-{dmin}_to_{dmax}"
+
+    default_group_config = create_influpaint_vs_flusight_config()
+    evaluator = ModelEvaluator()
+    create_plots(label, all_scores_t, all_scores_rel, save_dir, combined_missing, default_group_config, evaluator)
+
+    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "model_missing_counts": combined_missing}
     
     # Create combined plots across all seasons
     if len(results) > 1:
