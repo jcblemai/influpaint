@@ -66,9 +66,6 @@ class Config:
     # WIS components for stacking (excluding calibration)
     STACK_COMPONENTS = ["wis_sharpness", "wis_overprediction", "wis_underprediction"]
 
-# %%
-# WIS scoring handled in evaluate_deprecated.py
-
 
 # %%
 # Helpers
@@ -303,8 +300,8 @@ def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[sc
 
 
 
-def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: pd.DataFrame) -> Tuple[List[scoring_eval.ForecastRecord], Dict[str, int], Dict[str, Dict]]:
-    """Collect InfluPaint forecasts into scoring_eval.ForecastRecord list, missing counts, and failures."""
+def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: pd.DataFrame) -> Tuple[List[scoring_eval.ForecastRecord], Dict[str, int]]:
+    """Collect InfluPaint forecasts into scoring_eval.ForecastRecord list and missing counts."""
     configs = sorted(season_jobs["config"].unique().tolist())
     model_paths: Dict[str, Dict[dt.date, str]] = {}
     for config in configs:
@@ -315,14 +312,11 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
 
     records: List[scoring_eval.ForecastRecord] = []
     missing_counts: Dict[str, int] = {}
-    failures: Dict[str, Dict] = {}
 
     for run_name, by_date in model_paths.items():
         present = 0
-        failure_details = {}
         for d in dates:
             if d not in by_date:
-                failure_details[d] = "No CSV found"
                 continue
             path = by_date[d]
             try:
@@ -338,7 +332,6 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
                 have = sorted(df["output_type_id"].unique().tolist())
                 missing_q = sorted(set(np.round(Config.REQUIRED_QUANTILES, 6)) - set(np.round(have, 6)))
                 if missing_q:
-                    failure_details[d] = f"Missing quantiles {missing_q[:3]}{'...' if len(missing_q) > 3 else ''}"
                     continue
                 records.append(
                     scoring_eval.ForecastRecord(
@@ -350,210 +343,28 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
                     )
                 )
                 present += 1
-            except Exception as e:
-                failure_details[d] = f"Error: {str(e)[:80]}"
+            except Exception:
+                continue
 
         missing = len(dates) - present
         missing_counts[run_name] = missing
-        failures[run_name] = {
-            "present_count": present,
-            "missing_count": missing,
-            "failure_details": failure_details,
-            "kept": (missing <= Config.ALLOW_MISSING_DATES_PER_MODEL) and (present > 0),
-        }
-
-    # Models expected but not discovered at all
-    expected = season_jobs[["scenario_id", "config"]].drop_duplicates()
-    found = set()
-    for name in model_paths:
-        try:
-            scenario_id = int(name.split("::")[0][1:])
-            config_name = name.split("::")[-1]
-            found.add((scenario_id, config_name))
-        except Exception:
-            pass
-    for _, row in expected.iterrows():
-        key = (row["scenario_id"], row["config"]) 
-        if key not in found:
-            name = f"i{row['scenario_id']}::{row['config']}"
-            missing_counts[name] = len(dates)
-            failures[name] = {
-                "present_count": 0,
-                "missing_count": len(dates),
-                "failure_details": {d: "No CSV found" for d in dates},
-                "kept": False,
-            }
 
     keep = {m for m, miss in missing_counts.items() if miss <= Config.ALLOW_MISSING_DATES_PER_MODEL}
     records = [r for r in records if r.model in keep]
     missing_counts = {m: c for m, c in missing_counts.items() if m in keep}
-    failures = {m: v for m, v in failures.items() if m in keep or v.get("present_count", 0) == 0}
-    return records, missing_counts, failures
+    return records, missing_counts
 
 
-def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[scoring_eval.ForecastDataset, Dict[str, int], Dict[str, Dict]]:
-    """Load forecasts for both groups and return a scoring_eval.ForecastDataset plus missing counts and failures."""
+def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[scoring_eval.ForecastDataset, Dict[str, int]]:
+    """Load forecasts for both groups and return a scoring_eval.ForecastDataset plus missing counts."""
     jobs = read_jobs()
     season_jobs = jobs[jobs["season"] == season]
     flusight_recs, flusight_missing = collect_flusight_records(season, dates)
-    influpaint_recs, influpaint_missing, influpaint_failures = collect_influpaint_records(season, dates, season_jobs)
+    influpaint_recs, influpaint_missing = collect_influpaint_records(season, dates, season_jobs)
     dataset = scoring_eval.ForecastDataset(records=flusight_recs + influpaint_recs)
     missing_counts = {**flusight_missing, **influpaint_missing}
-    return dataset, missing_counts, influpaint_failures
+    return dataset, missing_counts
 
-
-#! Legacy evaluate_models removed; dataset-based loader is used instead
-
-
-def create_failed_jobs_file(season: str, failures: Dict, save_dir: str):
-    """Create failed jobs files from failure information."""
-    if not failures:
-        return
-    
-    # Read original jobs file to get run_id mapping
-    jobs_df = read_jobs()
-    season_jobs = jobs_df[jobs_df["season"] == season]
-    
-    failed_jobs = []
-    
-    for run_name, details in failures.items():
-        print(f"  {run_name}: {details['present_count']}/{details['present_count'] + details['missing_count']} dates successful")
-        
-        # Extract scenario_id and config from run_name (e.g., "i806::celebahq" -> 806, "celebahq")
-        try:
-            scenario_id = int(run_name.split("::")[0][1:])  # Remove 'i' prefix
-            config_name = run_name.split("::")[-1]
-        except (ValueError, IndexError):
-            print(f"    Warning: Could not parse scenario_id from {run_name}")
-            continue
-        
-        # Find matching run_id from original jobs
-        matching_jobs = season_jobs[
-            (season_jobs["scenario_id"] == scenario_id) & 
-            (season_jobs["config"] == config_name)
-        ]
-        
-        if matching_jobs.empty:
-            print(f"    Warning: No matching job found for scenario {scenario_id}, config {config_name}")
-            continue
-            
-        run_id = matching_jobs.iloc[0]["run_id"]
-        
-        # Add failed dates to the failed jobs list
-        for failed_date, reason in details['failure_details'].items():
-            # Find the exact job_id from original jobs file for this scenario/date/config combination
-            matching_job = season_jobs[
-                (season_jobs["scenario_id"] == scenario_id) & 
-                (season_jobs["config"] == config_name) & 
-                (season_jobs["date"] == failed_date)
-            ]
-            
-            if matching_job.empty:
-                print(f"    Warning: No matching job_id found for scenario {scenario_id}, config {config_name}, date {failed_date}")
-                continue
-                
-            original_job_id = matching_job.iloc[0]["job_id"]
-            
-            failed_jobs.append({
-                'job_id': original_job_id,
-                'scenario_id': scenario_id,
-                'run_id': run_id,
-                'season': season,
-                'date': failed_date,
-                'config': config_name,
-                'failure_reason': reason
-            })
-        
-        # Show failure summary and complete list of failed dates
-        if details['failure_details']:
-            failure_summary = {}
-            for reason in details['failure_details'].values():
-                failure_type = reason.split(':')[0] if ':' in reason else reason
-                failure_summary[failure_type] = failure_summary.get(failure_type, 0) + 1
-            print(f"    Failure reasons: {dict(failure_summary)}")
-            print(f"    Status: {'INCLUDED in analysis' if details['kept'] else 'EXCLUDED from analysis'}")
-            # Show all failed dates formatted nicely
-            failed_dates = sorted(details['failure_details'].keys())
-            formatted_dates = [d.strftime('%Y-%m-%d') for d in failed_dates]
-            print(f"    Failed dates: {formatted_dates}")
-        print()
-    
-    # Write failed jobs files
-    print(f"Total failed jobs collected: {len(failed_jobs)}")
-    if failed_jobs:
-        failed_jobs_df = pd.DataFrame(failed_jobs)
-        
-        # Standard format (for rerunning jobs)
-        failed_jobs_file = os.path.join(save_dir, f"failed_inpaint_jobs_{season}.txt")
-        failed_jobs_df[['job_id', 'scenario_id', 'run_id', 'season', 'date', 'config']].to_csv(
-            failed_jobs_file, index=False
-        )
-        print(f"Written {len(failed_jobs)} failed jobs to: {failed_jobs_file}")
-        
-        # Detailed format (with failure reasons)
-        detailed_file = os.path.join(save_dir, f"failed_inpaint_jobs_{season}_detailed.txt")
-        failed_jobs_df.to_csv(detailed_file, index=False)
-        print(f"Written detailed failure report to: {detailed_file}")
-        
-        # Create additional file for completely failed models (zero successful dates)
-        completely_failed_jobs = []
-        completely_failed_models = []
-        
-        for run_name, details in failures.items():
-            if details['present_count'] == 0:  # All dates failed
-                completely_failed_models.append(run_name)
-                
-                # Extract scenario_id and config from run_name
-                try:
-                    scenario_id = int(run_name.split("::")[0][1:])  # Remove 'i' prefix
-                    config_name = run_name.split("::")[-1]
-                except (ValueError, IndexError):
-                    continue
-                
-                # Find matching run_id from original jobs
-                matching_jobs = season_jobs[
-                    (season_jobs["scenario_id"] == scenario_id) & 
-                    (season_jobs["config"] == config_name)
-                ]
-                
-                if matching_jobs.empty:
-                    continue
-                    
-                run_id = matching_jobs.iloc[0]["run_id"]
-                
-                # Add all failed dates for this completely failed model
-                for failed_date, reason in details['failure_details'].items():
-                    # Find the exact job_id from original jobs file
-                    matching_job = season_jobs[
-                        (season_jobs["scenario_id"] == scenario_id) & 
-                        (season_jobs["config"] == config_name) & 
-                        (season_jobs["date"] == failed_date)
-                    ]
-                    
-                    if matching_job.empty:
-                        continue
-                        
-                    original_job_id = matching_job.iloc[0]["job_id"]
-                    
-                    completely_failed_jobs.append({
-                        'job_id': original_job_id,
-                        'scenario_id': scenario_id,
-                        'run_id': run_id,
-                        'season': season,
-                        'date': failed_date,
-                        'config': config_name,
-                        'failure_reason': reason
-                    })
-        
-        # Write completely failed jobs file if any exist
-        if completely_failed_jobs:
-            completely_failed_df = pd.DataFrame(completely_failed_jobs)
-            completely_failed_file = os.path.join(save_dir, f"completely_failed_inpaint_jobs_{season}.txt")
-            completely_failed_df[['job_id', 'scenario_id', 'run_id', 'season', 'date', 'config']].to_csv(
-                completely_failed_file, index=False
-            )
-            print(f"Written {len(completely_failed_jobs)} completely failed jobs (zero successful dates) to: {completely_failed_file}")
-            print(f"Completely failed models ({len(completely_failed_models)}): {sorted(completely_failed_models)}")
 
 
 def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, 
@@ -659,7 +470,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
     os.makedirs(save_dir, exist_ok=True)
     
     try:
-        dataset, model_missing_counts, failures = build_dataset_for_season(season, dates)
+        dataset, model_missing_counts = build_dataset_for_season(season, dates)
         if not dataset.records:
             raise RuntimeError(f"No forecasts found for season {season}")
         gt = load_ground_truth(season)
@@ -673,13 +484,6 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
 
     kept_models = sorted(all_scores_t["model"].unique())
     print(f"Kept models ({season}): {len(kept_models)}")
-    
-    # Report InfluPaint failures and create failed jobs file
-    influpaint_failures = {k: v for k, v in failures.items() if k.startswith('i')}
-    print(f"\nInfluPaint failures found: {len(influpaint_failures)} models")
-    if influpaint_failures:
-        print(f"\nDetailed InfluPaint failure report for {season}:")
-        create_failed_jobs_file(season, influpaint_failures, save_dir)
 
     # Calculate relative scores vs baseline (use FluSight-baseline specifically)
     baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
@@ -738,7 +542,6 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     # Collect data from all seasons
     all_records = []
     combined_missing_counts = {}
-    all_failures = {}
     
     for season in seasons:
         if season not in Config.FLUSIGHT_BASES:
@@ -753,7 +556,7 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
         
         # Collect records for this season
         flusight_recs, flusight_missing = collect_flusight_records(season, dates)
-        influpaint_recs, influpaint_missing, influpaint_failures = collect_influpaint_records(season, dates, season_jobs)
+        influpaint_recs, influpaint_missing = collect_influpaint_records(season, dates, season_jobs)
         
         # Add to combined collections
         all_records.extend(flusight_recs + influpaint_recs)
@@ -763,8 +566,6 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
             combined_missing_counts[f"{season}_{model}"] = count
         for model, count in influpaint_missing.items():
             combined_missing_counts[f"{season}_{model}"] = count
-            
-        all_failures.update(influpaint_failures)
     
     if not all_records:
         raise RuntimeError("No forecast records found across all seasons")
