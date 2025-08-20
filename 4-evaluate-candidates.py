@@ -1,10 +1,10 @@
 # %% [markdown]
 # InfluPaint vs FluSight Evaluation Orchestrator
-# This script orchestrates the evaluation process by:
-# - Reading job dates and collecting all forecast data
-# - Using evaluation_module for core evaluation and plotting logic
-# - Supporting different grouping and coloring schemes
-# - Generating comprehensive evaluation reports
+# This notebook-style script orchestrates the evaluation process by:
+# - Loading CSV forecast data for InfluPaint and FluSight models
+# - Creating ForecastDataset objects with proper grouping and display names
+# - Using evaluation_module for scoring and plotting
+# - Supporting flexible model grouping (influpaint vs flusight, scenarios, etc.)
 
 # %%
 import os
@@ -15,19 +15,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 from typing import Dict, List, Tuple, Optional, Union
-from dataclasses import dataclass
 
 # Import our evaluation module
-from evaluate_plot import (
-    ModelEvaluator,
-    PlotConfig,
-    GroupConfig,
-    create_influpaint_vs_flusight_config,
-    create_scenario_based_config,
-    create_config_based_config,
+from evaluation_module import (
+    ForecastRecord, 
+    ForecastDataset, 
+    score_dataset, 
+    compute_relative_scores,
+    create_heatmap_plot,
+    create_component_plot,
+    create_time_series_plot
 )
-import evaluate_deprecated as evaluate_deprecated
-from evaluation_module import ForecastRecord, ForecastDataset, score_dataset, compute_relative_scores
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -66,12 +64,10 @@ class Config:
     # Quantile requirements for forecasts
     REQUIRED_QUANTILES = [0.01, 0.025] + list(np.arange(0.05, 0.95 + 0.05, 0.05)) + [0.975, 0.99]
     
-    # Plotting configuration
-    PLOT_COLORS = {
+    # Model grouping and colors
+    GROUP_COLORS = {
         'influpaint': 'green',
-        'flusight': 'blue', 
-        'missing': 'red',
-        'baseline': 'red'
+        'flusight': 'blue'
     }
     
     # WIS components for stacking (excluding calibration)
@@ -260,6 +256,25 @@ def filter_forecast_df(df: pd.DataFrame) -> pd.DataFrame:
 #! Removed legacy evaluate_flusight_models in favor of collect_flusight_records
 
 
+def create_display_name(model_name: str) -> str:
+    """Create a readable display name for plots."""
+    if model_name.startswith('i') and '::' in model_name:
+        # InfluPaint model: keep full name but add line breaks every 3 components
+        parts = model_name.split("::")
+        if len(parts) >= 3:
+            # Group parts into chunks of 3, separated by newlines
+            chunks = []
+            for i in range(0, len(parts), 3):
+                chunk = "::".join(parts[i:i+3])
+                chunks.append(chunk)
+            return "\n".join(chunks)
+        else:
+            return model_name
+    else:
+        # FluSight model: keep as is
+        return model_name
+
+
 def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[ForecastRecord], Dict[str, int]]:
     """Collect FluSight forecasts into ForecastRecord list and missing counts."""
     flusight_models = list_flusight_models(season)
@@ -278,8 +293,8 @@ def collect_flusight_records(season: str, dates: List[dt.date]) -> Tuple[List[Fo
                 records.append(
                     ForecastRecord(
                         model=model,
-                        group="groupB",
-                        season=season,
+                        group="flusight", 
+                        display_name=create_display_name(model),
                         forecast_date=pd.to_datetime(d),
                         df=df,
                     )
@@ -335,8 +350,8 @@ def collect_influpaint_records(season: str, dates: List[dt.date], season_jobs: p
                 records.append(
                     ForecastRecord(
                         model=run_name,
-                        group="groupA",
-                        season=season,
+                        group="influpaint",
+                        display_name=create_display_name(run_name),
                         forecast_date=pd.to_datetime(d),
                         df=df,
                     )
@@ -548,120 +563,88 @@ def create_failed_jobs_file(season: str, failures: Dict, save_dir: str):
             print(f"Completely failed models ({len(completely_failed_models)}): {sorted(completely_failed_models)}")
 
 
-def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, save_dir: str, 
-                model_missing_counts: Dict[str, int], group_config: GroupConfig = None, 
-                evaluator: ModelEvaluator = None):
+def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, 
+                dataset: ForecastDataset, save_dir: str, model_missing_counts: Dict[str, int]):
     """
-    Create visualization plots for the season results using the evaluation module.
+    Create visualization plots for the season results using evaluation_module.
     
     Args:
         season: Season identifier
         all_scores_t: Absolute scores dataframe
-        all_scores_rel: Relative scores dataframe  
+        all_scores_rel: Relative scores dataframe
+        dataset: ForecastDataset with model info
         save_dir: Directory to save plots
         model_missing_counts: Dictionary of missing counts per model
-        group_config: Configuration for model grouping and colors
-        evaluator: ModelEvaluator instance (creates default if None)
     """
-    if evaluator is None:
-        evaluator = ModelEvaluator()
-    
     # 1a) Heatmap of absolute WIS - US only
-    us_abs = all_scores_t[(all_scores_t["location"] == "US") & (all_scores_t["wis_type"] == "wis_total")]
-    if len(us_abs) > 0:
-        tp_us_abs = (
-            us_abs
-            .pivot_table(index=["model"], columns=["forecast_date", "target"], values="value", aggfunc="mean")
-            .fillna(np.nan)
-        )
-        # Remove models that have no valid US data (all NaN rows)
-        tp_us_abs = tp_us_abs.dropna(how='all')
-        
-        evaluator.create_heatmap_plot(tp_us_abs, f"{season}: Absolute WIS (US National only)", 
-                                     f"{season}_absolute_wis_heatmap_US.png", save_dir, 
-                                     model_missing_counts, group_config)
-
-    # 1b) Heatmap of relative WIS - US only
-    us_only = all_scores_rel[all_scores_rel["location"] == "US"]
-    if len(us_only) > 0:
-        tp_us = (
-            us_only
-            .pivot_table(index=["model"], columns=["forecast_date", "target"], values="value", aggfunc="mean")
-            .fillna(np.nan)
-        )
-        # Remove models that have no valid US data (all NaN rows)
-        tp_us = tp_us.dropna(how='all')
-        
-        evaluator.create_heatmap_plot(tp_us, f"{season}: Relative WIS vs Baseline (US National only)", 
-                                     f"{season}_relative_wis_heatmap_US.png", save_dir, 
-                                     model_missing_counts, group_config, center=1, vmin=0, vmax=2)
-
-    # 1c) Heatmap of absolute WIS - All locations summed  
-    abs_all = all_scores_t[all_scores_t["wis_type"] == "wis_total"]
-    tp_abs_all = (
-        abs_all
-        .groupby(["model", "forecast_date", "target"], as_index=False)["value"].sum()
-        .pivot_table(index=["model"], columns=["forecast_date", "target"], values="value", aggfunc="mean")
-        .fillna(np.nan)
+    create_heatmap_plot(
+        all_scores_t, dataset, Config.GROUP_COLORS,
+        f"{season}: Absolute WIS (US National only)", 
+        f"{season}_absolute_wis_heatmap_US.png", 
+        save_dir, model_missing_counts,
+        location_filter="US", wis_type="wis_total"
     )
-    
-    evaluator.create_heatmap_plot(tp_abs_all, f"{season}: Absolute WIS (All 51 locations summed)", 
-                                 f"{season}_absolute_wis_heatmap_AllSum.png", save_dir, 
-                                 model_missing_counts, group_config)
+
+    # 1b) Heatmap of relative WIS - US only  
+    create_heatmap_plot(
+        all_scores_rel, dataset, Config.GROUP_COLORS,
+        f"{season}: Relative WIS vs Baseline (US National only)",
+        f"{season}_relative_wis_heatmap_US.png", 
+        save_dir, model_missing_counts,
+        center=1, vmin=0, vmax=2, location_filter="US", wis_type="wis_total"
+    )
+
+    # 1c) Heatmap of absolute WIS - All locations summed
+    create_heatmap_plot(
+        all_scores_t, dataset, Config.GROUP_COLORS,
+        f"{season}: Absolute WIS (All 51 locations summed)",
+        f"{season}_absolute_wis_heatmap_AllSum.png", 
+        save_dir, model_missing_counts,
+        location_filter="ALL", wis_type="wis_total"
+    )
 
     # 1d) Heatmap of relative WIS - All locations summed
-    tp_all = (
-        all_scores_rel
-        .groupby(["model", "forecast_date", "target"], as_index=False)["value"].sum()
-        .pivot_table(index=["model"], columns=["forecast_date", "target"], values="value", aggfunc="mean")
-        .fillna(np.nan)
+    create_heatmap_plot(
+        all_scores_rel, dataset, Config.GROUP_COLORS,
+        f"{season}: Relative WIS vs Baseline (All 51 locations summed)",
+        f"{season}_relative_wis_heatmap_AllSum.png", 
+        save_dir, model_missing_counts,
+        center=1, vmin=0, vmax=2, location_filter="ALL", wis_type="wis_total"
+    )
+
+    # 2a) WIS components - US only
+    create_component_plot(
+        all_scores_t, dataset, Config.GROUP_COLORS,
+        f"{season}: WIS Components (US National only)",
+        f"{season}_wis_components_US.png",
+        save_dir, model_missing_counts, location_filter="US"
+    )
+
+    # 2b) WIS components - All locations summed  
+    create_component_plot(
+        all_scores_t, dataset, Config.GROUP_COLORS,
+        f"{season}: WIS Components (All 51 locations summed)",
+        f"{season}_wis_components_AllSum.png",
+        save_dir, model_missing_counts, location_filter="ALL"
     )
     
-    evaluator.create_heatmap_plot(tp_all, f"{season}: Relative WIS vs Baseline (All 51 locations summed)", 
-                                 f"{season}_relative_wis_heatmap_AllSum.png", save_dir, 
-                                 model_missing_counts, group_config, center=1, vmin=0, vmax=2)
-
-    # 2a) WIS components - US only 
-    us_scores = all_scores_t[all_scores_t["location"] == "US"]
-    if len(us_scores) > 0:
-        evaluator.create_component_plots(us_scores, f"{season}", f"{season}_US", save_dir, 
-                                        model_missing_counts, group_config)
-
-    # 2b) WIS components - All locations summed
-    evaluator.create_component_plots(all_scores_t, f"{season}", f"{season}_AllSum", save_dir, 
-                                    model_missing_counts, group_config)
-    
-    # 3) Time series plots for this season
     # 3a) Absolute time series - US only
-    us_timeseries = all_scores_t[
-        (all_scores_t["location"] == "US") & 
-        (all_scores_t["wis_type"] == "wis_total")
-    ].copy()
-    if not us_timeseries.empty:
-        us_timeseries["season"] = season  # Add season column
-        evaluator.create_time_series_plot(
-            us_timeseries, 
-            f"{season}: Absolute WIS Over Time (US National)",
-            f"{season}_absolute_timeseries_US.png",
-            save_dir, 
-            model_missing_counts, 
-            group_config, 
-            is_relative=False
-        )
+    create_time_series_plot(
+        all_scores_t, dataset, Config.GROUP_COLORS,
+        f"{season}: Absolute WIS Over Time (US National)",
+        f"{season}_absolute_timeseries_US.png",
+        save_dir, model_missing_counts,
+        location_filter="US", wis_type="wis_total", is_relative=False
+    )
     
     # 3b) Relative time series - US only
-    us_rel_timeseries = all_scores_rel[all_scores_rel["location"] == "US"].copy()
-    if not us_rel_timeseries.empty:
-        us_rel_timeseries["season"] = season  # Add season column
-        evaluator.create_time_series_plot(
-            us_rel_timeseries,
-            f"{season}: Relative WIS Over Time (US National)",
-            f"{season}_relative_timeseries_US.png", 
-            save_dir,
-            model_missing_counts,
-            group_config,
-            is_relative=True
-        )
+    create_time_series_plot(
+        all_scores_rel, dataset, Config.GROUP_COLORS,
+        f"{season}: Relative WIS Over Time (US National)",
+        f"{season}_relative_timeseries_US.png", 
+        save_dir, model_missing_counts,
+        location_filter="US", wis_type="wis_total", is_relative=True
+    )
 
 
 def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[str, pd.DataFrame]:
@@ -705,9 +688,7 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         print(f"\nDetailed InfluPaint failure report for {season}:")
         create_failed_jobs_file(season, influpaint_failures, save_dir)
 
-    # all_scores_t is already tidy from evaluation_module.score_dataset
-
-    # Calculate relative scores vs baseline (use Flusight-Baseline specifically)
+    # Calculate relative scores vs baseline (use FluSight-baseline specifically)
     baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
     baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
     try:
@@ -716,211 +697,132 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         # Fallback: no baseline present, just copy wis_total
         all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
 
-    # Create plots with default grouping (InfluPaint vs FluSight)
-    default_group_config = create_influpaint_vs_flusight_config()
-    evaluator = ModelEvaluator()
-    create_plots(season, all_scores_t, all_scores_rel, save_dir, model_missing_counts, 
-                default_group_config, evaluator)
+    # Create plots using evaluation_module
+    create_plots(season, all_scores_t, all_scores_rel, dataset, save_dir, model_missing_counts)
 
-    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "model_missing_counts": model_missing_counts}
+    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "dataset": dataset, "model_missing_counts": model_missing_counts}
 
 
 # %%
-def create_combined_plots(all_seasons_results: Dict[str, Dict], save_dir: str):
-    """Create combined plots across all seasons."""
-    evaluator = ModelEvaluator()
-    evaluator.create_combined_plots(all_seasons_results, save_dir)
-    return
+# NOTEBOOK-STYLE FUNCTIONS FOR DIFFERENT EVALUATION APPROACHES
 
-def evaluate_with_custom_grouping(group_config: GroupConfig, suffix: str = ""):
+
+def evaluate_influpaint_vs_flusight():
     """
-    Run evaluation with a custom grouping configuration.
-    
-    Args:
-        group_config: Configuration for model grouping and colors
-        suffix: Suffix to add to output directories
-    
-    Returns:
-        Dictionary of evaluation results by season
+    Default evaluation: InfluPaint (green) vs FluSight (blue) by season.
+    This is the main notebook cell for standard evaluation.
     """
     jobs = read_jobs()
     by_season = season_dates_from_jobs(jobs)
     results = {}
-    evaluator = ModelEvaluator()
     
     for season, dates in by_season.items():
         if season not in Config.FLUSIGHT_BASES:
-            # Skip seasons not present locally
+            print(f"Skipping {season}: no local FluSight data")
             continue
         
-        # Create season-specific save directory with suffix
-        save_dir = os.path.join("results", f"evaluate2_{season}{suffix}")
-        print(f"Scoring season {season} on {len(dates)} dates → {save_dir}")
-        
-        # Use existing evaluate_season but with custom plotting
-        season_results = evaluate_season(season, dates, save_dir)
-        
-        # Also create plots with custom grouping in separate directory
-        custom_save_dir = os.path.join(save_dir, "custom_grouping")
-        os.makedirs(custom_save_dir, exist_ok=True)
-        
-        # Get model missing counts from the season_results
-        model_missing_counts = season_results.get("model_missing_counts", {})
-        
-        # Create custom plots
-        create_plots(season, season_results["all_scores"], season_results["all_scores_rel"], 
-                    custom_save_dir, model_missing_counts, group_config, evaluator)
-        
-        results[season] = season_results
-    
-    return results
-
-
-def main():
-    """
-    Main function demonstrating different evaluation approaches.
-    You can easily run different grouping schemes by calling evaluate_with_custom_grouping.
-    """
-    # Default evaluation (InfluPaint vs FluSight)
-    jobs = read_jobs()
-    by_season = season_dates_from_jobs(jobs)
-    results = {}
-    for season, dates in by_season.items():
-        if season not in Config.FLUSIGHT_BASES:
-            continue
-        save_dir = os.path.join("results", f"evaluate2_{season}")
-        print(f"Scoring season {season} on {len(dates)} dates → {save_dir}")
+        save_dir = os.path.join("results", f"evaluate_{season}")
+        print(f"Evaluating {season}: {len(dates)} dates → {save_dir}")
         results[season] = evaluate_season(season, dates, save_dir)
-
-
-# Season-agnostic evaluation: evaluate an arbitrary list of dates spanning seasons
-def evaluate_dates(dates: List[dt.date], save_dir: str, label: str = None) -> Dict[str, pd.DataFrame]:
-    """
-    Evaluate arbitrary forecast dates (potentially spanning seasons) using the
-    same plotting logic. Dates are grouped by season internally; scoring is
-    done per season and then concatenated.
-
-    Args:
-        dates: List of reference dates to evaluate
-        save_dir: Output directory
-        label: Optional label to use on plots; defaults to min-to-max date span
-
-    Returns:
-        Dict with keys: all_scores (tidy absolute), all_scores_rel (relative)
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    jobs = read_jobs()
-    # Map provided dates to seasons via jobs file
-    dates_set = set(dates)
-    jobs_sub = jobs[jobs["date"].isin(dates_set)].copy()
-    if jobs_sub.empty:
-        raise RuntimeError("None of the provided dates matched the jobs configuration for season mapping.")
-
-    by_season = {s: sorted(g["date"].unique().tolist()) for s, g in jobs_sub.groupby("season")}
-
-    # Accumulate per-season results
-    tidy_abs = []
-    tidy_rel_parts = []
-    combined_missing: Dict[str, int] = {}
-    failures_all: Dict[str, Dict] = {}
-
-    for season, season_dates in by_season.items():
-        if season not in Config.FLUSIGHT_BASES:
-            continue
-        dataset, model_missing_counts, failures = build_dataset_for_season(season, season_dates)
-        if not dataset.records:
-            continue
-        gt = load_ground_truth(season)
-        scores_abs = score_dataset(dataset, gt)
-        if scores_abs.empty:
-            continue
-        # Choose baseline
-        kept_models = sorted(scores_abs["model"].unique())
-        baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
-        baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
-        try:
-            scores_rel = compute_relative_scores(scores_abs, baseline_model)
-        except Exception:
-            scores_rel = scores_abs[scores_abs["wis_type"] == "wis_total"].copy()
-
-        tidy_abs.append(scores_abs)
-        tidy_rel_parts.append(scores_rel)
-        # Combine missing counts across seasons
-        for k, v in model_missing_counts.items():
-            combined_missing[k] = combined_missing.get(k, 0) + int(v)
-        failures_all.update(failures)
-
-    if not tidy_abs:
-        raise RuntimeError("No scores could be computed for the provided dates.")
-
-    all_scores_t = pd.concat(tidy_abs, ignore_index=True)
-    all_scores_rel = pd.concat(tidy_rel_parts, ignore_index=True)
-
-    # Plot with a neutral label
-    if not label:
-        dmin, dmax = min(dates), max(dates)
-        label = f"custom-{dmin}_to_{dmax}"
-
-    default_group_config = create_influpaint_vs_flusight_config()
-    evaluator = ModelEvaluator()
-    create_plots(label, all_scores_t, all_scores_rel, save_dir, combined_missing, default_group_config, evaluator)
-
-    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "model_missing_counts": combined_missing}
-    
-    # Create combined plots across all seasons
-    if len(results) > 1:
-        combined_save_dir = os.path.join("results", "evaluate2_combined")
-        create_combined_plots(results, combined_save_dir)
     
     return results
 
 
-def run_all_grouping_examples():
+# %%
+def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "results/combined_seasons"):
     """
-    Example function showing how to run evaluation with different grouping schemes.
+    Evaluate multiple seasons together using the same evaluation functions.
+    
+    Args:
+        seasons: List of season names to combine (default: all available seasons)
+        save_dir: Directory to save combined results
     """
-    print("=== Running Scenario-Based Evaluation ===") 
-    scenario_results = evaluate_with_custom_grouping(create_scenario_based_config(), "_scenarios")
+    if seasons is None:
+        seasons = list(Config.FLUSIGHT_BASES.keys())
     
-    print("\\n=== Running Config-Based Evaluation ===")
-    config_results = evaluate_with_custom_grouping(create_config_based_config(), "_configs")
+    print(f"Evaluating combined seasons: {seasons}")
     
-    # Custom grouping example: Group by model architecture
-    print("\\n=== Running Custom Architecture-Based Evaluation ===")
-    def architecture_group_fn(model_name: str) -> str:
-        if model_name.startswith('i') and '::' in model_name:
-            parts = model_name.split("::")
-            if len(parts) >= 2:
-                # Extract model architecture (second part)
-                arch = parts[1]
-                if 'U500' in arch:
-                    return 'unet_500'
-                elif 'U1000' in arch:
-                    return 'unet_1000'
-                else:
-                    return 'other_influpaint'
-            else:
-                return 'other_influpaint'
-        else:
-            return 'flusight'
+    # Collect data from all seasons
+    all_records = []
+    combined_missing_counts = {}
+    all_failures = {}
     
-    arch_config = GroupConfig(
-        group_fn=architecture_group_fn,
-        color_map={
-            'unet_500': 'lightgreen', 
-            'unet_1000': 'darkgreen',
-            'other_influpaint': 'orange',
-            'flusight': 'blue'
-        }
-    )
-    arch_results = evaluate_with_custom_grouping(arch_config, "_architecture")
+    for season in seasons:
+        if season not in Config.FLUSIGHT_BASES:
+            print(f"Skipping {season}: no local FluSight data")
+            continue
+            
+        jobs = read_jobs()
+        season_jobs = jobs[jobs["season"] == season]
+        dates = sorted(season_jobs["date"].unique().tolist())
+        
+        print(f"Loading {season}: {len(dates)} dates")
+        
+        # Collect records for this season
+        flusight_recs, flusight_missing = collect_flusight_records(season, dates)
+        influpaint_recs, influpaint_missing, influpaint_failures = collect_influpaint_records(season, dates, season_jobs)
+        
+        # Add to combined collections
+        all_records.extend(flusight_recs + influpaint_recs)
+        
+        # Combine missing counts (prefix with season to avoid conflicts)
+        for model, count in flusight_missing.items():
+            combined_missing_counts[f"{season}_{model}"] = count
+        for model, count in influpaint_missing.items():
+            combined_missing_counts[f"{season}_{model}"] = count
+            
+        all_failures.update(influpaint_failures)
+    
+    if not all_records:
+        raise RuntimeError("No forecast records found across all seasons")
+    
+    # Create combined dataset
+    combined_dataset = ForecastDataset(records=all_records)
+    
+    # Use ground truth from 2024-2025 season only
+    combined_gt_df = load_ground_truth("2024-2025")
+    
+    # Score the combined dataset
+    print("Computing WIS scores...")
+    all_scores_t = score_dataset(combined_dataset, combined_gt_df)
+    
+    if all_scores_t.empty:
+        raise RuntimeError("Scoring produced no results")
+    
+    kept_models = sorted(all_scores_t["model"].unique())
+    print(f"Kept models (combined): {len(kept_models)}")
+    
+    # Calculate relative scores vs baseline
+    baseline_candidates = [m for m in kept_models if m == "FluSight-baseline" or m.startswith("FluSight-baseline")]
+    baseline_model = baseline_candidates[0] if baseline_candidates else "FluSight-baseline"
+    
+    try:
+        all_scores_rel = compute_relative_scores(all_scores_t, baseline_model)
+    except Exception:
+        # Fallback: no baseline present, just copy wis_total
+        all_scores_rel = all_scores_t[all_scores_t["wis_type"] == "wis_total"].copy()
+    
+    # Create plots for combined seasons
+    season_label = "_".join(seasons)
+    print(f"Creating plots → {save_dir}")
+    create_plots(f"Combined ({season_label})", all_scores_t, all_scores_rel, 
+                combined_dataset, save_dir, combined_missing_counts)
     
     return {
-        'scenarios': scenario_results, 
-        'configs': config_results,
-        'architecture': arch_results
+        "all_scores": all_scores_t, 
+        "all_scores_rel": all_scores_rel, 
+        "dataset": combined_dataset, 
+        "model_missing_counts": combined_missing_counts,
+        "seasons": seasons
     }
 
 
 if __name__ == "__main__":
-    main()
+    # Default evaluation when run as script
+    evaluate_influpaint_vs_flusight()
+    
+    # Also run combined season evaluation
+    print("\n" + "="*50)
+    print("RUNNING COMBINED SEASON EVALUATION")
+    print("="*50)
+    evaluate_combined_seasons()
