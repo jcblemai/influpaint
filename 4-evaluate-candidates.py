@@ -367,19 +367,20 @@ def build_dataset_for_season(season: str, dates: List[dt.date]) -> Tuple[scoring
 
 
 
-def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.DataFrame, 
+def create_plots(season: str, results: scoring_eval.ScoringResults, all_scores_rel: pd.DataFrame, 
                 dataset: scoring_eval.ForecastDataset, save_dir: str, missing_counts: Dict[str, int]):
     """
     Create visualization plots for the season results using evaluation_module.
     
     Args:
         season: Season identifier
-        all_scores_t: Absolute scores dataframe
+        results: ScoringResults with forecast_metrics and model_metrics
         all_scores_rel: Relative scores dataframe
         dataset: scoring_eval.ForecastDataset with model info
         save_dir: Directory to save plots
         missing_counts: Dictionary of missing counts per model
     """
+    all_scores_t = results.forecast_metrics
     # 1a) Heatmap of absolute WIS - US only
     scoring_plot.forecast_scores_heatmap(
         all_scores_t, dataset, Config.GROUP_COLORS,
@@ -449,6 +450,24 @@ def create_plots(season: str, all_scores_t: pd.DataFrame, all_scores_rel: pd.Dat
         save_dir, missing_counts,
         location_filter="US", scoring_metric="wis_total", is_relative=True
     )
+    
+    # 4. Per-model metrics plots
+    if not results.model_metrics.empty:
+        # Model performance summary
+        scoring_plot.model_performance_summary(
+            results, dataset, Config.GROUP_COLORS,
+            f"{season}: Model Performance Summary",
+            f"{season}_model_performance_summary.png",
+            save_dir
+        )
+        
+        # Model horizon heatmap
+        scoring_plot.model_horizon_heatmap(
+            results, dataset, Config.GROUP_COLORS,
+            f"{season}: Coverage and Completion by Horizon",
+            f"{season}_model_horizon_heatmap.png",
+            save_dir
+        )
 
 
 def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[str, pd.DataFrame]:
@@ -474,7 +493,19 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         if not dataset.records:
             raise RuntimeError(f"No forecasts found for season {season}")
         gt = load_ground_truth(season)
-        all_scores_t, missing_counts = scoring_eval.score_dataset(dataset, gt, dates)
+        
+        # Import per-model metrics from MetricRegistry
+        from scoring.evaluation import MetricRegistry
+        per_model_metrics = [
+            MetricRegistry.COVERAGE_95,
+            MetricRegistry.COVERAGE_95_GAP,
+            MetricRegistry.COMPLETION_RATE
+        ]
+        
+        results = scoring_eval.score_dataset(dataset, gt, dates, metrics=per_model_metrics)
+        all_scores_t = results.forecast_metrics
+        missing_counts = results.meta['missing_counts']
+        
         if all_scores_t.empty:
             raise RuntimeError(f"Scoring produced no results for season {season}")
         logging.info(f"Successfully scored {len(all_scores_t['model'].unique())} models for season {season}")
@@ -495,9 +526,9 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         all_scores_rel = all_scores_t[all_scores_t["scoring_metric"] == "wis_total"].copy()
 
     # Create plots using evaluation_module
-    create_plots(season, all_scores_t, all_scores_rel, dataset, save_dir, missing_counts)
+    create_plots(season, results, all_scores_rel, dataset, save_dir, missing_counts)
 
-    return {"all_scores": all_scores_t, "all_scores_rel": all_scores_rel, "dataset": dataset, "model_missing_counts": model_missing_counts}
+    return {"results": results, "all_scores_rel": all_scores_rel, "dataset": dataset, "model_missing_counts": model_missing_counts}
 
 
 # %%
@@ -580,7 +611,18 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     
     # Score the combined dataset
     print("Computing WIS scores...")
-    all_scores_t, validation_missing_counts = scoring_eval.score_dataset(combined_dataset, combined_gt_df, all_expected_dates)
+    
+    # Import per-model metrics from MetricRegistry
+    from scoring.evaluation import MetricRegistry
+    per_model_metrics = [
+        MetricRegistry.COVERAGE_95,
+        MetricRegistry.COVERAGE_95_GAP,
+        MetricRegistry.COMPLETION_RATE
+    ]
+    
+    results = scoring_eval.score_dataset(combined_dataset, combined_gt_df, all_expected_dates, metrics=per_model_metrics)
+    all_scores_t = results.forecast_metrics
+    validation_missing_counts = results.meta['missing_counts']
     
     if all_scores_t.empty:
         raise RuntimeError("Scoring produced no results")
@@ -601,11 +643,11 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     # Create plots for combined seasons
     season_label = "_".join(seasons)
     print(f"Creating plots → {save_dir}")
-    create_plots(f"Combined ({season_label})", all_scores_t, all_scores_rel, 
+    create_plots(f"Combined ({season_label})", results, all_scores_rel, 
                 combined_dataset, save_dir, validation_missing_counts)
     
     return {
-        "all_scores": all_scores_t, 
+        "results": results, 
         "all_scores_rel": all_scores_rel, 
         "dataset": combined_dataset, 
         "model_missing_counts": combined_missing_counts,

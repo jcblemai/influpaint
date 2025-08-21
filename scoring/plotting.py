@@ -8,7 +8,7 @@ This module provides specialized plotting functions for forecast evaluation:
 - Supports flexible model grouping, coloring, and multiple scoring metrics
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import os
 import colorsys
 
@@ -18,11 +18,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.colors as mcolors
 
-from .evaluation import ForecastDataset
+from .evaluation import ForecastDataset, ScoringResults
 
 
 def forecast_scores_heatmap(
-    scores_df: pd.DataFrame,
+    scores: Union[pd.DataFrame, ScoringResults],
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
     title: str,
@@ -40,7 +40,7 @@ def forecast_scores_heatmap(
     Create heatmap showing forecast scoring metrics across models and dates.
     
     Args:
-        scores_df: Tidy forecast scores dataframe 
+        scores: Tidy forecast scores dataframe or ScoringResults object
         dataset: ForecastDataset with model display names and groups
         group_colors: Dictionary mapping model group names to colors
         title: Plot title
@@ -53,6 +53,14 @@ def forecast_scores_heatmap(
         aggregation: How to aggregate across forecast dates ("mean" or "sum")
     """
     os.makedirs(save_dir, exist_ok=True)
+    
+    # Handle both ScoringResults and DataFrame inputs
+    if isinstance(scores, ScoringResults):
+        scores_df = scores.to_tidy()
+        if missing_counts is None:
+            missing_counts = scores.meta.get('missing_counts', {})
+    else:
+        scores_df = scores
     
     # Create model info mapping
     model_info = {r.model: {"group": r.group, "display_name": r.display_name} for r in dataset.records}
@@ -147,7 +155,7 @@ def forecast_scores_heatmap(
 
 
 def forecast_components_breakdown(
-    scores_df: pd.DataFrame,
+    scores: Union[pd.DataFrame, ScoringResults],
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
     title: str,
@@ -166,6 +174,14 @@ def forecast_components_breakdown(
         sort_by: Column name to sort models by (default: "wis_total")
     """
     os.makedirs(save_dir, exist_ok=True)
+    
+    # Handle both ScoringResults and DataFrame inputs
+    if isinstance(scores, ScoringResults):
+        scores_df = scores.to_tidy()
+        if missing_counts is None:
+            missing_counts = scores.meta.get('missing_counts', {})
+    else:
+        scores_df = scores
     
     # Create model info mapping
     model_info = {r.model: {"group": r.group, "display_name": r.display_name} for r in dataset.records}
@@ -264,7 +280,7 @@ def forecast_components_breakdown(
 
 
 def forecast_performance_timeseries(
-    scores_df: pd.DataFrame,
+    scores: Union[pd.DataFrame, ScoringResults],
     dataset: ForecastDataset,
     group_colors: Dict[str, str],
     title: str,
@@ -281,6 +297,14 @@ def forecast_performance_timeseries(
     Creates 2x2 subplots for different forecast horizons to avoid overlap.
     """
     os.makedirs(save_dir, exist_ok=True)
+    
+    # Handle both ScoringResults and DataFrame inputs
+    if isinstance(scores, ScoringResults):
+        scores_df = scores.to_tidy()
+        if missing_counts is None:
+            missing_counts = scores.meta.get('missing_counts', {})
+    else:
+        scores_df = scores
     
     # Create model info mapping
     model_info = {r.model: {"group": r.group, "display_name": r.display_name} for r in dataset.records}
@@ -441,6 +465,261 @@ def forecast_performance_timeseries(
         axes[0].legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
     
     fig.suptitle(title, fontsize=14)
+    plt.tight_layout()
+    fig.savefig(os.path.join(save_dir, filename), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+
+
+def model_performance_summary(
+    scores: Union[pd.DataFrame, ScoringResults],
+    dataset: ForecastDataset,
+    group_colors: Dict[str, str],
+    title: str,
+    filename: str,
+    save_dir: str,
+    missing_counts: Optional[Dict[str, int]] = None,
+    metrics: Optional[List[str]] = None,
+    sort_by: str = "coverage_95"
+) -> None:
+    """
+    Create summary plot showing per-model metrics (coverage, completion rate, etc.).
+    
+    Args:
+        scores: ScoringResults object or tidy DataFrame
+        dataset: ForecastDataset with model info
+        group_colors: Dictionary mapping model group names to colors
+        title: Plot title
+        filename: Output filename
+        save_dir: Output directory
+        missing_counts: Optional dict of missing forecast counts per model
+        metrics: List of metric names to plot (default: all per-model metrics found)
+        sort_by: Metric to sort models by (default: "coverage_95")
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Handle both ScoringResults and DataFrame inputs
+    if isinstance(scores, ScoringResults):
+        if scores.model_metrics.empty:
+            print(f"No per-model metrics available for: {filename}")
+            return
+        model_data = scores.model_metrics.copy()
+        if missing_counts is None:
+            missing_counts = scores.meta.get('missing_counts', {})
+    else:
+        # Assume it's a tidy DataFrame, filter to per-model grain
+        if 'grain' in scores.columns:
+            model_data = scores[scores['grain'] == 'per_model'].copy()
+        else:
+            print(f"Cannot identify per-model metrics in DataFrame for: {filename}")
+            return
+    
+    if model_data.empty:
+        print(f"No per-model data for: {filename}")
+        return
+    
+    # Filter to requested metrics
+    if metrics is not None:
+        model_data = model_data[model_data['scoring_metric'].isin(metrics)]
+    
+    if model_data.empty:
+        print(f"No matching metrics found for: {filename}")
+        return
+    
+    # Create model info mapping
+    model_info = {r.model: {"group": r.group, "display_name": r.display_name} for r in dataset.records}
+    
+    # Aggregate across horizons (mean)
+    agg_data = (
+        model_data.groupby(['model', 'scoring_metric'])['value']
+        .mean()
+        .reset_index()
+        .pivot(index='model', columns='scoring_metric', values='value')
+        .fillna(0.0)
+    )
+    
+    if agg_data.empty:
+        print(f"No aggregated data for: {filename}")
+        return
+    
+    # Sort by specified metric
+    if sort_by in agg_data.columns:
+        agg_data = agg_data.sort_values(sort_by, ascending=False)  # Higher is better for coverage/completion
+    
+    # Select metrics to plot
+    available_metrics = agg_data.columns.tolist()
+    
+    # Create plot
+    fig, axes = plt.subplots(
+        1, len(available_metrics), 
+        figsize=(4 * len(available_metrics), max(8, 0.3 * len(agg_data)))
+    )
+    if len(available_metrics) == 1:
+        axes = [axes]
+    
+    for ax, metric in zip(axes, available_metrics):
+        metric_data = agg_data[metric]
+        ax.scatter(metric_data, np.arange(len(metric_data)), s=40, alpha=0.7)
+        ax.set_yticks(np.arange(len(metric_data)))
+        
+        # Create labels with missing counts
+        model_labels = []
+        for model_id in metric_data.index:
+            info = model_info.get(model_id, {"display_name": model_id, "group": "unknown"})
+            missing_count = missing_counts.get(model_id, 0) if missing_counts else 0
+            
+            if missing_count > 0:
+                label = f"{info['display_name']}\nmissing:{missing_count}"
+            else:
+                label = info['display_name']
+            model_labels.append(label)
+        
+        ax.set_yticklabels(model_labels, fontsize=8)
+        
+        # Apply model coloring
+        for i, (model_id, label) in enumerate(zip(metric_data.index, ax.get_yticklabels())):
+            info = model_info.get(model_id, {"group": "unknown"})
+            missing_count = missing_counts.get(model_id, 0) if missing_counts else 0
+            
+            if missing_count > 0:
+                label.set_color('red')
+            else:
+                color = group_colors.get(info['group'], 'gray')
+                label.set_color(color)
+        
+        # Format metric name for title
+        clean_name = metric.replace("_", " ").title()
+        ax.set_title(clean_name)
+        ax.set_xlabel("Value")
+        
+        # Add reference lines for coverage metrics
+        if "coverage" in metric.lower():
+            if "gap" in metric.lower():
+                ax.axvline(x=0, color='red', linestyle='--', alpha=0.5, label='Target (0)')
+            else:
+                ax.axvline(x=0.95, color='red', linestyle='--', alpha=0.5, label='Target (95%)')
+            ax.legend()
+        elif "completion" in metric.lower():
+            ax.axvline(x=1.0, color='red', linestyle='--', alpha=0.5, label='Complete (100%)')
+            ax.legend()
+    
+    fig.suptitle(title)
+    plt.tight_layout()
+    fig.savefig(os.path.join(save_dir, filename), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+
+
+def model_horizon_heatmap(
+    scores: Union[pd.DataFrame, ScoringResults],
+    dataset: ForecastDataset,
+    group_colors: Dict[str, str],
+    title: str,
+    filename: str,
+    save_dir: str,
+    missing_counts: Optional[Dict[str, int]] = None,
+    metric: str = "coverage_95"
+) -> None:
+    """
+    Create heatmap showing per-model metric values across horizons.
+    
+    Args:
+        scores: ScoringResults object or tidy DataFrame
+        dataset: ForecastDataset with model info  
+        group_colors: Dictionary mapping model group names to colors
+        title: Plot title
+        filename: Output filename
+        save_dir: Output directory
+        missing_counts: Optional dict of missing forecast counts per model
+        metric: Specific metric to plot across horizons
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Handle both ScoringResults and DataFrame inputs
+    if isinstance(scores, ScoringResults):
+        if scores.model_metrics.empty:
+            print(f"No per-model metrics available for: {filename}")
+            return
+        model_data = scores.model_metrics.copy()
+        if missing_counts is None:
+            missing_counts = scores.meta.get('missing_counts', {})
+    else:
+        # Assume it's a tidy DataFrame, filter to per-model grain
+        if 'grain' in scores.columns:
+            model_data = scores[scores['grain'] == 'per_model'].copy()
+        else:
+            print(f"Cannot identify per-model metrics in DataFrame for: {filename}")
+            return
+    
+    if model_data.empty:
+        print(f"No per-model data for: {filename}")
+        return
+    
+    # Filter to requested metric
+    metric_data = model_data[model_data['scoring_metric'] == metric]
+    
+    if metric_data.empty:
+        print(f"No data for metric '{metric}' in: {filename}")
+        return
+    
+    # Create model info mapping
+    model_info = {r.model: {"group": r.group, "display_name": r.display_name} for r in dataset.records}
+    
+    # Pivot for heatmap
+    heatmap_data = metric_data.pivot(index='model', columns='horizon', values='value').fillna(np.nan)
+    
+    if heatmap_data.empty:
+        print(f"No heatmap data for metric '{metric}' in: {filename}")
+        return
+    
+    # Sort by mean across horizons
+    row_means = heatmap_data.mean(axis=1, skipna=True)
+    heatmap_data = heatmap_data.loc[row_means.sort_values(ascending=False).index]
+    
+    # Create plot
+    fig, ax = plt.subplots(
+        figsize=(max(8, heatmap_data.shape[1] * 0.8), max(6, heatmap_data.shape[0] * 0.4))
+    )
+    
+    # Configure colormap based on metric type
+    if "gap" in metric.lower():
+        # Gap metrics: center around 0
+        vmax = max(abs(heatmap_data.min().min()), abs(heatmap_data.max().max()))
+        sns.heatmap(heatmap_data, ax=ax, cmap="RdBu_r", center=0, 
+                   vmin=-vmax, vmax=vmax, annot=True, fmt=".3f", linewidths=0.5)
+    else:
+        # Coverage/completion metrics: 0 to 1 scale
+        sns.heatmap(heatmap_data, ax=ax, cmap="RdYlGn", vmin=0, vmax=1,
+                   annot=True, fmt=".3f", linewidths=0.5)
+    
+    # Create display labels with missing counts
+    model_labels = []
+    for model_id in heatmap_data.index:
+        info = model_info.get(model_id, {"display_name": model_id, "group": "unknown"})
+        missing_count = missing_counts.get(model_id, 0) if missing_counts else 0
+        
+        if missing_count > 0:
+            label = f"{info['display_name']}\nmissing:{missing_count}"
+        else:
+            label = info['display_name']
+        model_labels.append(label)
+    
+    # Set y-tick labels
+    ax.set_yticklabels(model_labels, fontsize=8)
+    
+    # Apply model coloring
+    for i, (model_id, label) in enumerate(zip(heatmap_data.index, ax.get_yticklabels())):
+        info = model_info.get(model_id, {"group": "unknown"})
+        missing_count = missing_counts.get(model_id, 0) if missing_counts else 0
+        
+        if missing_count > 0:
+            label.set_color('red')
+        else:
+            color = group_colors.get(info['group'], 'gray')
+            label.set_color(color)
+    
+    ax.set_title(title)
+    ax.set_xlabel("Forecast Horizon (weeks)")
+    ax.set_ylabel("Model")
+    
     plt.tight_layout()
     fig.savefig(os.path.join(save_dir, filename), dpi=200, bbox_inches='tight')
     plt.close(fig)

@@ -8,7 +8,7 @@ This module provides a clean interface for:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Callable, Optional, Union
+from typing import Dict, List, Tuple, Callable, Optional, Union, Literal
 
 import pandas as pd
 import numpy as np
@@ -16,6 +16,45 @@ import numpy as np
 # Import WIS computation and validation
 from . import weighted_interval_score as wis
 from . import validation
+
+
+@dataclass
+class MetricSpec:
+    """Specification for a scoring metric with metadata."""
+    name: str                               # Unique metric name
+    type: Literal["per_forecast", "per_model"]  # Granularity level
+    grain: Tuple[str, ...]                  # Native keys (e.g., ("model", "horizon"))
+    orientation: Literal["min", "max"]      # Lower is better vs higher is better
+    family: str                             # Metric family ("wis", "crps", "coverage")
+    aggregator: str                         # Default aggregation ("mean", "median", "sum", "ratio")
+    forecast_types: List[str]               # Supported forecast types (["quantile", "sample"])
+    is_relative: bool                       # True for relative metrics (target value 1 or 0)
+    depends_on: Optional[List[str]] = None  # Dependencies for relative metrics
+
+
+@dataclass
+class ScoringResults:
+    """Container for forecast evaluation results with separate granularities."""
+    forecast_metrics: pd.DataFrame          # Per-forecast scores: model, forecast_date, target, target_end_date, horizon, location, scoring_metric, value
+    model_metrics: pd.DataFrame            # Per-model scores: model, [horizon], [location], scoring_metric, value
+    meta: Dict                             # Metadata: forecast_unit, transform, metrics_used, etc.
+    
+    def to_tidy(self) -> pd.DataFrame:
+        """Unified view with grain column for clean filtering."""
+        f = self.forecast_metrics.assign(grain="per_forecast")
+        m = self.model_metrics.assign(grain="per_model")
+        return pd.concat([f, m], ignore_index=True, sort=False)
+    
+    def get_forecast_counts(self, by: Optional[List[str]] = None) -> pd.DataFrame:
+        """Count forecasts per unit with explicit denominators."""
+        # TODO: Implement forecast counting
+        raise NotImplementedError("get_forecast_counts not yet implemented")
+    
+    def summarise_scores(self, by: List[str], agg: str = "mean", 
+                        weights: Optional[pd.Series] = None, geom: bool = False) -> pd.DataFrame:
+        """Aggregate with orientation-aware handling and geometric means for ratios."""
+        # TODO: Implement orientation-aware aggregation
+        raise NotImplementedError("summarise_scores not yet implemented")
 
 
 @dataclass
@@ -47,6 +86,108 @@ class ForecastDataset:
         return sorted(set(r.forecast_date for r in self.records))
 
 
+class MetricRegistry:
+    """Registry of all available scoring metrics with enhanced metadata."""
+    
+    # Per-forecast metrics (include horizon in grain)
+    WIS_TOTAL = MetricSpec(
+        name="wis_total",
+        type="per_forecast", 
+        grain=("model", "forecast_date", "horizon", "location"),
+        orientation="min",
+        family="wis",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    WIS_SHARPNESS = MetricSpec(
+        name="wis_sharpness",
+        type="per_forecast",
+        grain=("model", "forecast_date", "horizon", "location"),
+        orientation="min",
+        family="wis",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    WIS_OVERPREDICTION = MetricSpec(
+        name="wis_overprediction",
+        type="per_forecast",
+        grain=("model", "forecast_date", "horizon", "location"),
+        orientation="min",
+        family="wis",
+        aggregator="mean", 
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    WIS_UNDERPREDICTION = MetricSpec(
+        name="wis_underprediction",
+        type="per_forecast",
+        grain=("model", "forecast_date", "horizon", "location"),
+        orientation="min",
+        family="wis",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    # Relative metrics
+    WIS_TOTAL_REL = MetricSpec(
+        name="wis_total_relative",
+        type="per_forecast",
+        grain=("model", "forecast_date", "horizon", "location"),
+        orientation="min",
+        family="wis",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=True,
+        depends_on=["wis_total"]
+    )
+    
+    # Per-model metrics with horizon grain
+    COVERAGE_95 = MetricSpec(
+        name="coverage_95",
+        type="per_model",
+        grain=("model", "horizon"),
+        orientation="max",
+        family="coverage",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    COVERAGE_95_GAP = MetricSpec(
+        name="coverage_95_gap",
+        type="per_model",
+        grain=("model", "horizon"),
+        orientation="min",  # Gap should be close to 0
+        family="coverage",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    COMPLETION_RATE = MetricSpec(
+        name="completion_rate",
+        type="per_model",
+        grain=("model", "horizon"),
+        orientation="max",
+        family="availability",
+        aggregator="ratio",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    # Convenient groupings
+    WIS_COMPONENTS = [WIS_TOTAL, WIS_SHARPNESS, WIS_OVERPREDICTION, WIS_UNDERPREDICTION]
+    WIS_WITH_RELATIVE = [WIS_TOTAL, WIS_TOTAL_REL, WIS_SHARPNESS, WIS_OVERPREDICTION, WIS_UNDERPREDICTION]
+    COVERAGE_METRICS = [COVERAGE_95, COVERAGE_95_GAP]
+    ALL_MODEL_METRICS = [COVERAGE_95, COVERAGE_95_GAP, COMPLETION_RATE]
+
+
 @dataclass
 class ModelGroupConfig:
     """Configuration for model grouping and visualization."""
@@ -70,19 +211,21 @@ def score_dataset(
     dataset: ForecastDataset,
     ground_truth: pd.DataFrame,
     expected_dates: Optional[List] = None,
-) -> tuple[pd.DataFrame, Dict[str, int]]:
+    metrics: Optional[List[MetricSpec]] = None,
+    relative_baseline: Optional[str] = None,
+) -> ScoringResults:
     """
-    Compute absolute WIS and its components for all models and forecast dates.
+    Compute scoring metrics for all models and forecast dates.
 
     Args:
         dataset: ForecastDataset with forecast records
         ground_truth: Ground truth DataFrame
         expected_dates: Optional list of expected forecast dates for missing count calculation
+        metrics: List of metrics to compute (default: WIS components)
+        relative_baseline: Model name to use as baseline for relative metrics
         
     Returns:
-        tuple: (scores_dataframe, missing_counts_dict)
-        - scores_dataframe: Tidy dataframe with columns: model, forecast_date, target, target_end_date, scoring_metric, location, value  
-        - missing_counts_dict: Dictionary mapping model names to missing forecast counts
+        ScoringResults: Container with forecast_metrics, model_metrics, and metadata
     """
     # Validate input data format and consistency, get missing counts
     missing_counts = validation.validate_forecast_dataset(dataset, ground_truth, expected_dates)
@@ -108,11 +251,67 @@ def score_dataset(
     if not scores:
         raise validation.ValidationError("No valid scores computed for any model/date combination")
 
+    # Default metrics if not specified
+    if metrics is None:
+        metrics = MetricRegistry.WIS_COMPONENTS
+    
+    # Separate per-forecast and per-model metrics
+    per_forecast_metrics = [m for m in metrics if m.type == "per_forecast"]
+    per_model_metrics = [m for m in metrics if m.type == "per_model"]
+    
     all_scores = pd.concat(scores, names=["model", "forecast_date", "target", "target_end_date"]).reset_index()
-    id_vars = ['model', 'forecast_date', 'target', 'target_end_date', 'scoring_metric']
+    
+    # Extract horizon from target column (e.g., "0 wk ahead" -> 0)
+    all_scores['horizon'] = all_scores['target'].str.extract('(\d+)').astype(int)
+    
+    id_vars = ['model', 'forecast_date', 'target', 'target_end_date', 'horizon', 'scoring_metric']
     location_columns = [col for col in all_scores.columns if col not in id_vars]
-    tidy = pd.melt(all_scores, id_vars=id_vars, value_vars=location_columns, var_name='location', value_name='value')
-    return tidy, missing_counts
+    forecast_metrics = pd.melt(all_scores, id_vars=id_vars, value_vars=location_columns, 
+                              var_name='location', value_name='value')
+    
+    # Compute per-model metrics
+    model_metrics_list = []
+    
+    if per_model_metrics:
+        # Compute coverage metrics if requested
+        coverage_metrics_requested = [m for m in per_model_metrics if m.family == "coverage"]
+        if coverage_metrics_requested:
+            coverage_df = compute_coverage_metrics(dataset, ground_truth, expected_dates)
+            if not coverage_df.empty:
+                model_metrics_list.append(coverage_df)
+        
+        # Compute completion rate if requested  
+        completion_metrics_requested = [m for m in per_model_metrics if m.family == "availability"]
+        if completion_metrics_requested:
+            completion_df = compute_completion_rate(dataset, expected_dates)
+            if not completion_df.empty:
+                model_metrics_list.append(completion_df)
+    
+    # Combine all per-model metrics
+    if model_metrics_list:
+        model_metrics = pd.concat(model_metrics_list, ignore_index=True)
+    else:
+        model_metrics = pd.DataFrame(columns=['model', 'horizon', 'scoring_metric', 'value'])
+    
+    # TODO: Compute relative metrics if baseline specified
+    if relative_baseline is not None:
+        relative_total = compute_relative_scores(forecast_metrics, relative_baseline)
+        # For now, just append to forecast_metrics - will need proper handling later
+        forecast_metrics = pd.concat([forecast_metrics, relative_total], ignore_index=True)
+    
+    # Create metadata
+    meta = {
+        'missing_counts': missing_counts,
+        'metrics_computed': [m.name for m in metrics],
+        'relative_baseline': relative_baseline,
+        'forecast_unit': ('model', 'forecast_date', 'target', 'target_end_date', 'horizon', 'location')
+    }
+    
+    return ScoringResults(
+        forecast_metrics=forecast_metrics,
+        model_metrics=model_metrics, 
+        meta=meta
+    )
 
 
 def compute_relative_scores(
@@ -140,4 +339,205 @@ def compute_relative_scores(
     rel['value'] = rel['value'] / rel['value_baseline']
     rel = rel.drop(["value_baseline", "model_baseline"], axis=1)
     return rel
+
+
+def compute_coverage_metrics(dataset: ForecastDataset, ground_truth: pd.DataFrame, 
+                            expected_dates: Optional[List] = None) -> pd.DataFrame:
+    """
+    Compute coverage metrics (95% interval coverage and gap) per model and horizon.
+    
+    Args:
+        dataset: ForecastDataset with forecast records
+        ground_truth: Ground truth DataFrame  
+        expected_dates: Optional list of expected forecast dates
+        
+    Returns:
+        DataFrame with columns: model, horizon, scoring_metric, value, n_units
+    """
+    coverage_results = []
+    by_model = dataset.by_model()
+    
+    for model, dated in by_model.items():
+        # Combine all forecasts for this model
+        model_forecasts = []
+        for date, fdf in dated.items():
+            # Add forecast_date column
+            fdf_with_date = fdf.copy()
+            fdf_with_date['forecast_date'] = date
+            model_forecasts.append(fdf_with_date)
+        
+        if not model_forecasts:
+            continue
+            
+        combined_forecasts = pd.concat(model_forecasts, ignore_index=True)
+        
+        # Filter to quantile forecasts only
+        if "output_type" in combined_forecasts.columns:
+            combined_forecasts = combined_forecasts[combined_forecasts["output_type"] == "quantile"]
+        
+        # Use existing horizon column if available, otherwise extract from target
+        if 'horizon' not in combined_forecasts.columns:
+            # Extract horizon from target pattern, handle failures gracefully
+            horizon_extracted = combined_forecasts['target'].str.extract('(\d+)')
+            # Drop rows where horizon extraction failed
+            mask = horizon_extracted.iloc[:, 0].notna()
+            combined_forecasts = combined_forecasts[mask].copy()
+            combined_forecasts['horizon'] = horizon_extracted[mask].astype(int)
+        else:
+            # Ensure horizon is numeric and drop any rows with missing horizons
+            combined_forecasts = combined_forecasts.dropna(subset=['horizon']).copy()
+            combined_forecasts['horizon'] = combined_forecasts['horizon'].astype(int)
+        
+        # Compute coverage per horizon
+        for horizon in combined_forecasts['horizon'].unique():
+            horizon_forecasts = combined_forecasts[combined_forecasts['horizon'] == horizon]
+            
+            # Get 95% prediction intervals (5th and 95th percentiles)
+            lower_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == 0.05]
+            upper_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == 0.95]
+            
+            if lower_forecasts.empty or upper_forecasts.empty:
+                continue
+                
+            # Merge with ground truth
+            merged_lower = pd.merge(
+                lower_forecasts,
+                ground_truth,
+                left_on=['target_end_date', 'location'],
+                right_on=['date', 'location'],
+                how='inner'
+            )
+            
+            merged_upper = pd.merge(
+                upper_forecasts, 
+                ground_truth,
+                left_on=['target_end_date', 'location'],
+                right_on=['date', 'location'],
+                how='inner'
+            )
+            
+            # Find common observations
+            common_keys = set(zip(merged_lower['target_end_date'], merged_lower['location'])) & \
+                         set(zip(merged_upper['target_end_date'], merged_upper['location']))
+            
+            if not common_keys:
+                continue
+                
+            coverage_counts = 0
+            total_counts = 0
+            
+            for target_date, location in common_keys:
+                lower_val = merged_lower[
+                    (merged_lower['target_end_date'] == target_date) & 
+                    (merged_lower['location'] == location)
+                ]['value_x'].iloc[0]
+                
+                upper_val = merged_upper[
+                    (merged_upper['target_end_date'] == target_date) & 
+                    (merged_upper['location'] == location)
+                ]['value_x'].iloc[0]
+                
+                obs_val = merged_lower[
+                    (merged_lower['target_end_date'] == target_date) & 
+                    (merged_lower['location'] == location)
+                ]['value_y'].iloc[0]
+                
+                # Check if observation is within prediction interval
+                if lower_val <= obs_val <= upper_val:
+                    coverage_counts += 1
+                total_counts += 1
+            
+            if total_counts > 0:
+                coverage_rate = coverage_counts / total_counts
+                coverage_gap = coverage_rate - 0.95  # Target is 95%
+                
+                coverage_results.extend([
+                    {
+                        'model': model,
+                        'horizon': horizon,
+                        'scoring_metric': 'coverage_95',
+                        'value': coverage_rate,
+                        'n_units': total_counts
+                    },
+                    {
+                        'model': model, 
+                        'horizon': horizon,
+                        'scoring_metric': 'coverage_95_gap',
+                        'value': coverage_gap,
+                        'n_units': total_counts
+                    }
+                ])
+    
+    return pd.DataFrame(coverage_results)
+
+
+def compute_completion_rate(dataset: ForecastDataset, expected_dates: Optional[List] = None) -> pd.DataFrame:
+    """
+    Compute completion rate (% of expected forecasts submitted) per model and horizon.
+    
+    Args:
+        dataset: ForecastDataset with forecast records
+        expected_dates: List of expected forecast dates
+        
+    Returns:
+        DataFrame with columns: model, horizon, scoring_metric, value, n_expected
+    """
+    if expected_dates is None:
+        # If no expected dates specified, assume 100% completion for all models
+        completion_results = []
+        for record in dataset.records:
+            # Extract horizon from forecast data
+            if 'target' in record.df.columns:
+                horizons = record.df['target'].str.extract('(\d+)').astype(int).unique()
+                for horizon in horizons:
+                    completion_results.append({
+                        'model': record.model,
+                        'horizon': horizon,
+                        'scoring_metric': 'completion_rate',
+                        'value': 1.0,
+                        'n_expected': 1  # Unknown denominator
+                    })
+        return pd.DataFrame(completion_results)
+    
+    # Convert expected_dates to date objects if needed
+    if expected_dates and hasattr(expected_dates[0], 'date'):
+        expected_dates_set = set(d.date() if hasattr(d, 'date') else d for d in expected_dates)
+    else:
+        expected_dates_set = set(pd.to_datetime(expected_dates).date)
+    
+    completion_results = []
+    by_model = dataset.by_model()
+    
+    for model, dated in by_model.items():
+        # Get actual forecast dates for this model
+        actual_dates = set(d.date() if hasattr(d, 'date') else d for d in dated.keys())
+        
+        # Get horizons from forecast data
+        horizons = set()
+        for date, fdf in dated.items():
+            if 'horizon' in fdf.columns:
+                # Use existing horizon column if available
+                model_horizons = fdf.dropna(subset=['horizon'])['horizon'].astype(int).unique()
+                horizons.update(model_horizons)
+            elif 'target' in fdf.columns:
+                # Extract horizon from target pattern, handle failures gracefully
+                horizon_extracted = fdf['target'].str.extract('(\d+)')
+                valid_horizons = horizon_extracted.dropna().iloc[:, 0].astype(int).unique()
+                horizons.update(valid_horizons)
+        
+        # Compute completion rate per horizon
+        for horizon in horizons:
+            n_expected = len(expected_dates_set)
+            n_actual = len(actual_dates & expected_dates_set)
+            completion_rate = n_actual / n_expected if n_expected > 0 else 0.0
+            
+            completion_results.append({
+                'model': model,
+                'horizon': horizon,
+                'scoring_metric': 'completion_rate', 
+                'value': completion_rate,
+                'n_expected': n_expected
+            })
+    
+    return pd.DataFrame(completion_results)
 
