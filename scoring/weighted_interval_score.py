@@ -18,6 +18,7 @@ def weighted_interval_score_fast(
     weights=None,
     percent=False,
     check_consistency=True,
+    use_scoringutils_formula=True,
 ):
     if weights is None:
         weights = np.array(alphas) / 2
@@ -58,12 +59,37 @@ def weighted_interval_score_fast(
     lower_calibrations_weighted = lower_calibrations * weights
     totals_weighted = totals * weights
 
-    weights_sum = np.sum(weights)
-    sharpnesses_final = np.sum(sharpnesses_weighted, axis=0) / weights_sum
-    calibrations_final = np.sum(calibrations_weighted, axis=0) / weights_sum
-    upper_calibrations_final = np.sum(upper_calibrations_weighted, axis=0) / weights_sum
-    lower_calibrations_final = np.sum(lower_calibrations_weighted, axis=0) / weights_sum
-    totals_final = np.sum(totals_weighted, axis=0) / weights_sum
+    if use_scoringutils_formula:
+        # Use Bracher et al. (2021) formula: WIS = (1/(K + 0.5)) × [0.5×|y-m| + Σ(αₖ/2×ISₖ)]
+        # K = number of prediction intervals = len(alphas)
+        # Add median component with 0.5 weight if 0.5 quantile exists
+        K = len(alphas)
+        median_component = 0
+        
+        if 0.5 in q_dict:
+            median_predictions = q_dict[0.5]
+            median_component = 0.5 * np.abs(observations - median_predictions)
+        
+        # Sum weighted interval scores (already weighted by alpha/2)
+        interval_scores_sum = np.sum(totals_weighted, axis=0)
+        
+        # Apply (K + 0.5) normalization
+        normalization_factor = K + 0.5
+        totals_final = (median_component + interval_scores_sum) / normalization_factor
+        
+        # Components also need normalization
+        sharpnesses_final = np.sum(sharpnesses_weighted, axis=0) / normalization_factor
+        calibrations_final = np.sum(calibrations_weighted, axis=0) / normalization_factor
+        upper_calibrations_final = np.sum(upper_calibrations_weighted, axis=0) / normalization_factor
+        lower_calibrations_final = np.sum(lower_calibrations_weighted, axis=0) / normalization_factor
+    else:
+        # Original normalization (sum of weights)
+        weights_sum = np.sum(weights)
+        sharpnesses_final = np.sum(sharpnesses_weighted, axis=0) / weights_sum
+        calibrations_final = np.sum(calibrations_weighted, axis=0) / weights_sum
+        upper_calibrations_final = np.sum(upper_calibrations_weighted, axis=0) / weights_sum
+        lower_calibrations_final = np.sum(lower_calibrations_weighted, axis=0) / weights_sum
+        totals_final = np.sum(totals_weighted, axis=0) / weights_sum
 
     return (
         totals_final,
@@ -97,7 +123,7 @@ def score_Nwk_forecasts_hub(gt: pd.DataFrame, forecasts: pd.DataFrame) -> pd.Dat
     gt_piv = gt2.pivot(index="date", columns="location", values="value").sort_index()
 
     qvals = sorted(f["output_type_id"].unique())
-    lower = [q for q in qvals if q <= 0.5]
+    lower = [q for q in qvals if q < 0.5]  # EXCLUDE 0.5 median for interval calculation
     alphas = np.array(lower) * 2
 
     gt_dates = set(gt_piv.index)
@@ -134,6 +160,7 @@ def score_Nwk_forecasts_hub(gt: pd.DataFrame, forecasts: pd.DataFrame) -> pd.Dat
             alphas=alphas,
             q_dict=q_dict_v,
             weights=alphas / 2,
+            use_scoringutils_formula=True,
         )
 
         try:

@@ -461,12 +461,27 @@ def create_plots(season: str, results: scoring_eval.ScoringResults, all_scores_r
             save_dir
         )
         
-        # Model horizon heatmap
+        # Coverage metrics heatmaps (separate for 95% and 50%)
         scoring_plot.model_horizon_heatmap(
             results, dataset, Config.GROUP_COLORS,
-            f"{season}: Coverage and Completion by Horizon",
-            f"{season}_model_horizon_heatmap.png",
-            save_dir
+            f"{season}: 95% Coverage by Horizon", 
+            f"{season}_coverage_95_heatmap.png",
+            save_dir, metric="coverage_95"
+        )
+        
+        scoring_plot.model_horizon_heatmap(
+            results, dataset, Config.GROUP_COLORS,
+            f"{season}: 50% Coverage by Horizon",
+            f"{season}_coverage_50_heatmap.png", 
+            save_dir, metric="coverage_50"
+        )
+        
+        # Completion rate heatmap (separate from coverage)
+        scoring_plot.model_horizon_heatmap(
+            results, dataset, Config.GROUP_COLORS,
+            f"{season}: Completion Rate by Horizon",
+            f"{season}_completion_rate_heatmap.png",
+            save_dir, metric="completion_rate"
         )
 
 
@@ -499,6 +514,8 @@ def evaluate_season(season: str, dates: List[dt.date], save_dir: str) -> Dict[st
         per_model_metrics = [
             MetricRegistry.COVERAGE_95,
             MetricRegistry.COVERAGE_95_GAP,
+            MetricRegistry.COVERAGE_50,
+            MetricRegistry.COVERAGE_50_GAP,
             MetricRegistry.COMPLETION_RATE
         ]
         
@@ -617,6 +634,8 @@ def evaluate_combined_seasons(seasons: List[str] = None, save_dir: str = "result
     per_model_metrics = [
         MetricRegistry.COVERAGE_95,
         MetricRegistry.COVERAGE_95_GAP,
+        MetricRegistry.COVERAGE_50,
+        MetricRegistry.COVERAGE_50_GAP,
         MetricRegistry.COMPLETION_RATE
     ]
     

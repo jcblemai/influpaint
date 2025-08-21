@@ -151,7 +151,7 @@ class MetricRegistry:
     COVERAGE_95 = MetricSpec(
         name="coverage_95",
         type="per_model",
-        grain=("model", "horizon"),
+        grain=("model", "horizon", "location"),
         orientation="max",
         family="coverage",
         aggregator="mean",
@@ -162,7 +162,29 @@ class MetricRegistry:
     COVERAGE_95_GAP = MetricSpec(
         name="coverage_95_gap",
         type="per_model",
-        grain=("model", "horizon"),
+        grain=("model", "horizon", "location"),
+        orientation="min",  # Gap should be close to 0
+        family="coverage",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    COVERAGE_50 = MetricSpec(
+        name="coverage_50",
+        type="per_model",
+        grain=("model", "horizon", "location"),
+        orientation="max",
+        family="coverage",
+        aggregator="mean",
+        forecast_types=["quantile"],
+        is_relative=False
+    )
+    
+    COVERAGE_50_GAP = MetricSpec(
+        name="coverage_50_gap",
+        type="per_model",
+        grain=("model", "horizon", "location"),
         orientation="min",  # Gap should be close to 0
         family="coverage",
         aggregator="mean",
@@ -344,7 +366,7 @@ def compute_relative_scores(
 def compute_coverage_metrics(dataset: ForecastDataset, ground_truth: pd.DataFrame, 
                             expected_dates: Optional[List] = None) -> pd.DataFrame:
     """
-    Compute coverage metrics (95% interval coverage and gap) per model and horizon.
+    Compute coverage metrics (95% and 50% interval coverage and gaps) per model and horizon.
     
     Args:
         dataset: ForecastDataset with forecast records
@@ -388,85 +410,100 @@ def compute_coverage_metrics(dataset: ForecastDataset, ground_truth: pd.DataFram
             combined_forecasts = combined_forecasts.dropna(subset=['horizon']).copy()
             combined_forecasts['horizon'] = combined_forecasts['horizon'].astype(int)
         
-        # Compute coverage per horizon
+        # Compute coverage per horizon for both 50% and 95% intervals
         for horizon in combined_forecasts['horizon'].unique():
             horizon_forecasts = combined_forecasts[combined_forecasts['horizon'] == horizon]
             
-            # Get 95% prediction intervals (5th and 95th percentiles)
-            lower_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == 0.05]
-            upper_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == 0.95]
+            # Define intervals to compute: 50% and 95%
+            intervals = [
+                {'name': '50', 'lower_q': 0.25, 'upper_q': 0.75, 'target_coverage': 0.50},
+                {'name': '95', 'lower_q': 0.05, 'upper_q': 0.95, 'target_coverage': 0.95}
+            ]
             
-            if lower_forecasts.empty or upper_forecasts.empty:
-                continue
+            for interval in intervals:
+                # Get prediction intervals 
+                lower_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == interval['lower_q']]
+                upper_forecasts = horizon_forecasts[horizon_forecasts['output_type_id'] == interval['upper_q']]
                 
-            # Merge with ground truth
-            merged_lower = pd.merge(
-                lower_forecasts,
-                ground_truth,
-                left_on=['target_end_date', 'location'],
-                right_on=['date', 'location'],
-                how='inner'
-            )
-            
-            merged_upper = pd.merge(
-                upper_forecasts, 
-                ground_truth,
-                left_on=['target_end_date', 'location'],
-                right_on=['date', 'location'],
-                how='inner'
-            )
-            
-            # Find common observations
-            common_keys = set(zip(merged_lower['target_end_date'], merged_lower['location'])) & \
-                         set(zip(merged_upper['target_end_date'], merged_upper['location']))
-            
-            if not common_keys:
-                continue
+                if lower_forecasts.empty or upper_forecasts.empty:
+                    continue
+                    
+                # Merge with ground truth
+                merged_lower = pd.merge(
+                    lower_forecasts,
+                    ground_truth,
+                    left_on=['target_end_date', 'location'],
+                    right_on=['date', 'location'],
+                    how='inner'
+                )
                 
-            coverage_counts = 0
-            total_counts = 0
-            
-            for target_date, location in common_keys:
-                lower_val = merged_lower[
-                    (merged_lower['target_end_date'] == target_date) & 
-                    (merged_lower['location'] == location)
-                ]['value_x'].iloc[0]
+                merged_upper = pd.merge(
+                    upper_forecasts, 
+                    ground_truth,
+                    left_on=['target_end_date', 'location'],
+                    right_on=['date', 'location'],
+                    how='inner'
+                )
                 
-                upper_val = merged_upper[
-                    (merged_upper['target_end_date'] == target_date) & 
-                    (merged_upper['location'] == location)
-                ]['value_x'].iloc[0]
+                # Find common observations
+                common_keys = set(zip(merged_lower['target_end_date'], merged_lower['location'])) & \
+                             set(zip(merged_upper['target_end_date'], merged_upper['location']))
                 
-                obs_val = merged_lower[
-                    (merged_lower['target_end_date'] == target_date) & 
-                    (merged_lower['location'] == location)
-                ]['value_y'].iloc[0]
+                if not common_keys:
+                    continue
+                    
+                # Group by location to compute coverage per location
+                coverage_by_location = {}
                 
-                # Check if observation is within prediction interval
-                if lower_val <= obs_val <= upper_val:
-                    coverage_counts += 1
-                total_counts += 1
-            
-            if total_counts > 0:
-                coverage_rate = coverage_counts / total_counts
-                coverage_gap = coverage_rate - 0.95  # Target is 95%
+                for target_date, location in common_keys:
+                    lower_val = merged_lower[
+                        (merged_lower['target_end_date'] == target_date) & 
+                        (merged_lower['location'] == location)
+                    ]['value_x'].iloc[0]
+                    
+                    upper_val = merged_upper[
+                        (merged_upper['target_end_date'] == target_date) & 
+                        (merged_upper['location'] == location)
+                    ]['value_x'].iloc[0]
+                    
+                    obs_val = merged_lower[
+                        (merged_lower['target_end_date'] == target_date) & 
+                        (merged_lower['location'] == location)
+                    ]['value_y'].iloc[0]
+                    
+                    # Initialize location tracking
+                    if location not in coverage_by_location:
+                        coverage_by_location[location] = {'covered': 0, 'total': 0}
+                    
+                    # Check if observation is within prediction interval
+                    if lower_val <= obs_val <= upper_val:
+                        coverage_by_location[location]['covered'] += 1
+                    coverage_by_location[location]['total'] += 1
                 
-                coverage_results.extend([
-                    {
-                        'model': model,
-                        'horizon': horizon,
-                        'scoring_metric': 'coverage_95',
-                        'value': coverage_rate,
-                        'n_units': total_counts
-                    },
-                    {
-                        'model': model, 
-                        'horizon': horizon,
-                        'scoring_metric': 'coverage_95_gap',
-                        'value': coverage_gap,
-                        'n_units': total_counts
-                    }
-                ])
+                # Create results per location
+                for location, counts in coverage_by_location.items():
+                    if counts['total'] > 0:
+                        coverage_rate = counts['covered'] / counts['total']
+                        coverage_gap = coverage_rate - interval['target_coverage']  # Target varies by interval
+                        
+                        coverage_results.extend([
+                            {
+                                'model': model,
+                                'horizon': horizon,
+                                'location': location,
+                                'scoring_metric': f'coverage_{interval["name"]}',
+                                'value': coverage_rate,
+                                'n_units': counts['total']
+                            },
+                            {
+                                'model': model, 
+                                'horizon': horizon,
+                                'location': location,
+                                'scoring_metric': f'coverage_{interval["name"]}_gap',
+                                'value': coverage_gap,
+                                'n_units': counts['total']
+                            }
+                        ])
     
     return pd.DataFrame(coverage_results)
 
