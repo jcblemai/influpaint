@@ -775,10 +775,10 @@ def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, 
         print(f"❌ Unknown aggregation method: {aggregation}")
         return
     
-    # For relative metrics, sort in reverse (closer to 1.0 is better)
+    # For relative metrics, lower is better (values < 1 beat > 1)
     if 'relative' in metric.lower():
-        # Best relative WIS is closest to 1.0
-        rankings = rankings.iloc[(rankings - 1.0).abs().argsort()]
+        # Rank strictly ascending; do NOT use closeness to 1.0
+        rankings = rankings.sort_values(ascending=True)
     
     top_models = rankings.head(top_n)
     
@@ -795,4 +795,3 @@ def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, 
         print(f"{rank:2d}. {score_str:>8s} - {model}")
     
     print("=" * 60)
-

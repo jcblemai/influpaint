@@ -23,6 +23,8 @@ CSV_PATH = "results/scoringutils_scores.csv"
 SAVE_DIR = "results/simple_plots"
 GROUP_COLORS = {'influpaint': 'green', 'flusight': 'blue'}
 ALLOW_MISSING_DATES_PER_MODEL = 5  # Same threshold as evaluation_pipeline.py
+LEADERBOARD_DIR = "results/leaderboards"
+LEADERBOARD_CSV = os.path.join(LEADERBOARD_DIR, "leaderboard_full.csv")
 
 def add_inclusion_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Add columns indicating which plots each model should be included in based on per-season performance."""
@@ -234,13 +236,17 @@ if __name__ == "__main__":
     # Add inclusion columns based on per-season performance
     df_with_flags = add_inclusion_columns(df_raw)
     
-    # Create output directory
+    # Create output directories
     os.makedirs(SAVE_DIR, exist_ok=True)
+    os.makedirs(LEADERBOARD_DIR, exist_ok=True)
     
     # Plot order: Combined, then individual seasons
     available_seasons = [s for s in df_with_flags['season'].unique() if s != "Combined"]
     seasons_to_plot = ["Combined"] + sorted(available_seasons)
     
+    # Collect full leaderboards for all seasons/metrics
+    leaderboard_rows = []
+
     for season in seasons_to_plot:
         print(f"\n{'='*50}")
         print(f"PLOTTING: {season.upper()}")
@@ -273,9 +279,33 @@ if __name__ == "__main__":
         if not influpaint_df.empty:
             # Total WIS across all locations
             print_ladderboard('wis', 'sum', influpaint_df, top_n=10)
+
+            # Save full WIS leaderboard (sum)
+            wis_sum = influpaint_df.groupby('model')['wis'].sum().sort_values(ascending=True)
+            for rank_idx, (model, score) in enumerate(wis_sum.items(), start=1):
+                leaderboard_rows.append({
+                    'season': season,
+                    'metric': 'wis',
+                    'aggregation': 'sum',
+                    'model': model,
+                    'score': float(score),
+                    'rank': rank_idx
+                })
             
             # Relative WIS (mean across all locations)
             print_ladderboard('relative_wis', 'mean', influpaint_df, top_n=10)
+
+            # Save full Relative WIS leaderboard (mean)
+            rel_mean = influpaint_df.groupby('model')['relative_wis'].mean().sort_values(ascending=True)
+            for rank_idx, (model, score) in enumerate(rel_mean.items(), start=1):
+                leaderboard_rows.append({
+                    'season': season,
+                    'metric': 'relative_wis',
+                    'aggregation': 'mean',
+                    'model': model,
+                    'score': float(score),
+                    'rank': rank_idx
+                })
         
         # 1. WIS Heatmaps
         season_axis = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
@@ -528,6 +558,15 @@ if __name__ == "__main__":
         
         print(f"Completed plots for {season}")
     
+    # Save full leaderboard CSV
+    if leaderboard_rows:
+        lb_df = pd.DataFrame(leaderboard_rows)
+        # Optional: stable ordering
+        sort_cols = ['season', 'metric', 'aggregation', 'rank']
+        lb_df = lb_df.sort_values(sort_cols)
+        lb_df.to_csv(LEADERBOARD_CSV, index=False)
+        print(f"\nSaved full leaderboard to: {LEADERBOARD_CSV}")
+
     print(f"\n{'='*50}")
     print(f"ALL PLOTS SAVED TO: {SAVE_DIR}")
     print('='*50)
