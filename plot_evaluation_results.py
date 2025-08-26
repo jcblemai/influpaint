@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 # Import the existing SeasonAxis and benchmark plotting
 from influpaint.utils.season_axis import SeasonAxis
-from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked
+from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked, print_ladderboard
 
 
 # %% Configuration
@@ -118,7 +118,7 @@ def count_missing_data(original_df: pd.DataFrame, models_in_plot: List[str], loc
     expected_targets = {0, 1, 2, 3}
     
     # Dates: From jobs file for InfluPaint models, or from available data for FluSight
-    jobs_file = "inpaint_jobs_paper-2025-07-22.txt"
+    jobs_file = "paper_runs_2025-07-22/inpaint_jobs_paper-2025-07-22.txt"
     try:
         import pandas as pd
         jobs_df = pd.read_csv(jobs_file)
@@ -267,6 +267,15 @@ if __name__ == "__main__":
             continue
         
         print(f"Models in {season}: {len(season_df['model'].unique())} (after per-season filtering)")
+        
+        # INFLUPAINT LEADERBOARDS
+        influpaint_df = season_df[season_df['group'] == 'influpaint'].copy()
+        if not influpaint_df.empty:
+            # Total WIS across all locations
+            print_ladderboard('wis', 'sum', influpaint_df, top_n=10)
+            
+            # Relative WIS (mean across all locations)
+            print_ladderboard('relative_wis', 'mean', influpaint_df, top_n=10)
         
         # 1. WIS Heatmaps
         season_axis = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
@@ -462,6 +471,60 @@ if __name__ == "__main__":
         )
         fig.savefig(os.path.join(season_dir, "wis_components_states_stacked.png"), dpi=200, bbox_inches='tight')
         plt.close(fig)
+        
+        # 7. Scatter Plots using plot_components
+        
+        # WIS vs Relative WIS scatter - US National
+        us_data = season_df[season_df['location'] == 'US']
+        if not us_data.empty:
+            plot_components(
+                df=us_data,
+                group_by=['model', 'group'],
+                value_cols=['wis', 'relative_wis'], 
+                agg_func={'wis': 'mean', 'relative_wis': 'mean'},
+                title=f"{season}: WIS vs Relative WIS (US National)",
+                save_path=os.path.join(season_dir, "wis_scatter_US.png"),
+                group_colors=GROUP_COLORS,
+                stacked=False
+            )
+        
+        # WIS vs Relative WIS scatter - All Locations
+        plot_components(
+            df=season_df,
+            group_by=['model', 'group'],
+            value_cols=['wis', 'relative_wis'], 
+            agg_func={'wis': 'sum', 'relative_wis': 'mean'},
+            title=f"{season}: WIS vs Relative WIS (All Locations)",
+            save_path=os.path.join(season_dir, "wis_scatter_all_locations.png"),
+            group_colors=GROUP_COLORS,
+            stacked=False
+        )
+        
+        # Coverage scatter - US National
+        us_data = season_df[season_df['location'] == 'US']
+        if not us_data.empty:
+            plot_components(
+                df=us_data,
+                group_by=['model', 'group'],
+                value_cols=['interval_coverage_50', 'interval_coverage_90'],
+                agg_func={'interval_coverage_50': 'mean', 'interval_coverage_90': 'mean'},
+                title=f"{season}: Coverage Comparison (US National)",
+                save_path=os.path.join(season_dir, "coverage_scatter_US.png"),
+                group_colors=GROUP_COLORS,
+                stacked=False
+            )
+        
+        # Coverage scatter - All Locations
+        plot_components(
+            df=season_df,
+            group_by=['model', 'group'],
+            value_cols=['interval_coverage_50', 'interval_coverage_90'],
+            agg_func={'interval_coverage_50': 'mean', 'interval_coverage_90': 'mean'},
+            title=f"{season}: Coverage Comparison (All Locations)",
+            save_path=os.path.join(season_dir, "coverage_scatter_all_locations.png"),
+            group_colors=GROUP_COLORS,
+            stacked=False
+        )
         
         print(f"Completed plots for {season}")
     

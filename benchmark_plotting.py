@@ -745,3 +745,54 @@ def plot_multi_location_stacked(df: pd.DataFrame, locations: List[str], referenc
     
     return g.fig, g.axes
 
+
+def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, top_n: int = 10):
+    """
+    Print leaderboard for specified metric using filtered DataFrame.
+    
+    Args:
+        metric: Column name to rank by (e.g., 'wis', 'relative_wis')
+        aggregation: How to aggregate ('sum', 'mean', 'median')  
+        filtered_df: Already filtered DataFrame (e.g., InfluPaint models only)
+        top_n: Number of top models to show
+    """
+    if filtered_df.empty:
+        print(f"❌ No data for {metric} leaderboard")
+        return
+    
+    if metric not in filtered_df.columns:
+        print(f"❌ Metric '{metric}' not found in DataFrame")
+        return
+    
+    # Aggregate by model across all locations/dates
+    if aggregation == 'sum':
+        rankings = filtered_df.groupby('model')[metric].sum().sort_values()
+    elif aggregation == 'mean':
+        rankings = filtered_df.groupby('model')[metric].mean().sort_values()
+    elif aggregation == 'median':
+        rankings = filtered_df.groupby('model')[metric].median().sort_values()
+    else:
+        print(f"❌ Unknown aggregation method: {aggregation}")
+        return
+    
+    # For relative metrics, sort in reverse (closer to 1.0 is better)
+    if 'relative' in metric.lower():
+        # Best relative WIS is closest to 1.0
+        rankings = rankings.iloc[(rankings - 1.0).abs().argsort()]
+    
+    top_models = rankings.head(top_n)
+    
+    print(f"\n🏆 TOP {top_n} LEADERBOARD: {metric.upper()} ({aggregation.upper()})")
+    print("=" * 60)
+    
+    for rank, (model, score) in enumerate(top_models.items(), 1):
+        # Format score based on metric type
+        if 'relative' in metric.lower():
+            score_str = f"{score:.3f}"
+        else:
+            score_str = f"{score:.2f}"
+        
+        print(f"{rank:2d}. {score_str:>8s} - {model}")
+    
+    print("=" * 60)
+
