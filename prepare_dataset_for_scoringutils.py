@@ -243,11 +243,31 @@ class ScoringutilsFullEvaluator:
         
         # Merge forecasts with truth
         print(f"Merging {len(forecast_df):,} forecasts with {len(truth_renamed):,} truth records...")
+        
+        # Debug merge compatibility
+        forecast_locations = set(forecast_df['location'].unique())
+        truth_locations = set(truth_renamed['location'].unique())
+        forecast_dates = set(forecast_df['target_end_date'].unique())
+        truth_dates = set(truth_renamed['target_end_date'].unique())
+        
+        print(f"Forecast locations: {sorted(list(forecast_locations))}")
+        print(f"Truth locations: {sorted(list(truth_locations))}")
+        print(f"Location overlap: {len(forecast_locations & truth_locations)}/{len(forecast_locations | truth_locations)}")
+        print(f"Date overlap: {len(forecast_dates & truth_dates)}/{len(forecast_dates | truth_dates)}")
+        
         combined = forecast_df.merge(
             truth_renamed[['target_end_date', 'location', 'observed']], 
             on=['target_end_date', 'location'], 
             how='inner'
         )
+        
+        # Report merge results
+        records_lost = len(forecast_df) - len(combined)
+        if records_lost > 0:
+            print(f"⚠️  MERGE LOST {records_lost:,} forecast records ({records_lost/len(forecast_df)*100:.1f}%)")
+            raise ValueError("Merge lost forecast records - check location/date alignment")
+        else:
+            print(f"✓ No records lost in merge")
         
         # Rename forecast columns for scoringutils
         combined = combined.rename(columns={
