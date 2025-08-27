@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 # Import the existing SeasonAxis and benchmark plotting
 from influpaint.utils.season_axis import SeasonAxis
-from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked, print_ladderboard, compute_missing_data
+from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked, print_ladderboard, compute_missing_data, get_rankings
 
 
 # %% Configuration
@@ -229,12 +229,9 @@ if __name__ == "__main__":
         # INFLUPAINT LEADERBOARDS
         influpaint_df = season_df[season_df['group'] == 'influpaint'].copy()
         if not influpaint_df.empty:
-            # Total WIS across all locations
-            print_ladderboard('wis', 'sum', influpaint_df, top_n=10)
-
-            # Save full WIS leaderboard (sum)
-            wis_sum = influpaint_df.groupby('model')['wis'].sum().sort_values(ascending=True)
-            for rank_idx, (model, score) in enumerate(wis_sum.items(), start=1):
+            # Total WIS across all locations (print and get rankings)
+            wis_rankings = get_rankings('wis', 'sum', influpaint_df, print_top_n=10)
+            for rank_idx, (model, score) in enumerate(wis_rankings.items(), start=1):
                 leaderboard_rows.append({
                     'season': season,
                     'metric': 'wis',
@@ -245,11 +242,8 @@ if __name__ == "__main__":
                 })
             
             # Relative WIS (mean across all locations)
-            print_ladderboard('relative_wis', 'mean', influpaint_df, top_n=10)
-
-            # Save full Relative WIS leaderboard (mean)
-            rel_mean = influpaint_df.groupby('model')['relative_wis'].mean().sort_values(ascending=True)
-            for rank_idx, (model, score) in enumerate(rel_mean.items(), start=1):
+            rel_rankings = get_rankings('relative_wis', 'mean', influpaint_df, print_top_n=10)
+            for rank_idx, (model, score) in enumerate(rel_rankings.items(), start=1):
                 leaderboard_rows.append({
                     'season': season,
                     'metric': 'relative_wis',

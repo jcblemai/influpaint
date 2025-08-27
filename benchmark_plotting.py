@@ -807,52 +807,63 @@ def compute_missing_data(df: pd.DataFrame, models: List[str],
     return missing_info
 
 
-def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, top_n: int = 10):
+def get_rankings(metric: str, aggregation: str, filtered_df: pd.DataFrame, ascending: bool = True, print_top_n: int = None) -> pd.Series:
     """
-    Print leaderboard for specified metric using filtered DataFrame.
+    Get rankings for specified metric using filtered DataFrame.
     
     Args:
         metric: Column name to rank by (e.g., 'wis', 'relative_wis')
         aggregation: How to aggregate ('sum', 'mean', 'median')  
         filtered_df: Already filtered DataFrame (e.g., InfluPaint models only)
-        top_n: Number of top models to show
+        ascending: True if lower values are better, False if higher values are better
+        print_top_n: If provided, print top N models to console
+        
+    Returns:
+        Series with model names as index and scores as values, sorted by rank
     """
     if filtered_df.empty:
-        print(f"❌ No data for {metric} leaderboard")
-        return
+        if print_top_n is not None:
+            print(f"❌ No data for {metric} leaderboard")
+        return pd.Series(dtype=float)
     
     if metric not in filtered_df.columns:
-        print(f"❌ Metric '{metric}' not found in DataFrame")
-        return
+        if print_top_n is not None:
+            print(f"❌ Metric '{metric}' not found in DataFrame")
+        return pd.Series(dtype=float)
     
     # Aggregate by model across all locations/dates
     if aggregation == 'sum':
-        rankings = filtered_df.groupby('model')[metric].sum().sort_values()
+        rankings = filtered_df.groupby('model')[metric].sum().sort_values(ascending=ascending)
     elif aggregation == 'mean':
-        rankings = filtered_df.groupby('model')[metric].mean().sort_values()
+        rankings = filtered_df.groupby('model')[metric].mean().sort_values(ascending=ascending)
     elif aggregation == 'median':
-        rankings = filtered_df.groupby('model')[metric].median().sort_values()
+        rankings = filtered_df.groupby('model')[metric].median().sort_values(ascending=ascending)
     else:
-        print(f"❌ Unknown aggregation method: {aggregation}")
-        return
+        if print_top_n is not None:
+            print(f"❌ Unknown aggregation method: {aggregation}")
+        return pd.Series(dtype=float)
     
-    # For relative metrics, lower is better (values < 1 beat > 1)
-    if 'relative' in metric.lower():
-        # Rank strictly ascending; do NOT use closeness to 1.0
-        rankings = rankings.sort_values(ascending=True)
-    
-    top_models = rankings.head(top_n)
-    
-    print(f"\nTOP {top_n} LEADERBOARD: {metric.upper()} ({aggregation.upper()})")
-    print("=" * 60)
-    
-    for rank, (model, score) in enumerate(top_models.items(), 1):
-        # Format score based on metric type
-        if 'relative' in metric.lower():
-            score_str = f"{score:.3f}"
-        else:
-            score_str = f"{score:.2f}"
+    # Print top N if requested
+    if print_top_n is not None:
+        top_models = rankings.head(print_top_n)
         
-        print(f"{rank:2d}. {score_str:>8s} - {model}")
+        print(f"\nTOP {print_top_n} LEADERBOARD: {metric.upper()} ({aggregation.upper()})")
+        print("=" * 60)
+        
+        for rank, (model, score) in enumerate(top_models.items(), 1):
+            # Format score based on metric type
+            if 'relative' in metric.lower():
+                score_str = f"{score:.3f}"
+            else:
+                score_str = f"{score:.2f}"
+            
+            print(f"{rank:2d}. {score_str:>8s} - {model}")
+        
+        print("=" * 60)
     
-    print("=" * 60)
+    return rankings
+
+
+def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, top_n: int = 10):
+    """Print leaderboard - wrapper for backward compatibility."""
+    get_rankings(metric, aggregation, filtered_df, ascending=True, print_top_n=top_n)
