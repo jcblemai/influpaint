@@ -746,6 +746,67 @@ def plot_multi_location_stacked(df: pd.DataFrame, locations: List[str], referenc
     return g.fig, g.axes
 
 
+def compute_missing_data(df: pd.DataFrame, models: List[str], 
+                        expected_locations: List[str], expected_horizons: List[int], 
+                        expected_dates: List[str]) -> Dict[str, Dict[str, Union[str, bool]]]:
+    """
+    Compute missing data statistics for models given expected dimensions.
+    
+    Args:
+        df: DataFrame with columns ['model', 'location', 'horizon', 'reference_date']
+        models: List of model names to analyze
+        expected_locations: List of expected location codes
+        expected_horizons: List of expected horizon values
+        expected_dates: List of expected forecast dates (as strings)
+    
+    Returns:
+        Dict mapping model name to {"text": display_text, "critical": is_critical}
+    """
+    missing_info = {}
+    
+    for model in models:
+        model_data = df[df['model'] == model]
+        
+        if model_data.empty:
+            total_expected = len(expected_locations) * len(expected_horizons) * len(expected_dates)
+            missing_info[model] = {
+                "text": f"missing ({len(expected_locations)}l,{len(expected_horizons)}h,{len(expected_dates)}d, Total: {total_expected})",
+                "critical": True
+            }
+        else:
+            # Filter to expected dimensions only
+            model_in_expected = model_data[
+                (model_data['location'].isin(expected_locations)) & 
+                (model_data['horizon'].isin(expected_horizons)) &
+                (model_data['reference_date'].isin(expected_dates))
+            ]
+            total_actual = len(model_in_expected)
+            
+            total_expected = len(expected_locations) * len(expected_horizons) * len(expected_dates)
+            total_missing = max(0, total_expected - total_actual)
+            
+            # Count missing by dimension
+            actual_locations = set(model_in_expected['location'].unique())
+            actual_horizons = set(model_in_expected['horizon'].unique())
+            actual_dates = set(model_in_expected['reference_date'].unique())
+            
+            missing_locations = len(set(expected_locations) - actual_locations)
+            missing_horizons = len(set(expected_horizons) - actual_horizons)
+            missing_dates = len(set(expected_dates) - actual_dates)
+            
+            # Critical if entire dimensions are missing
+            is_critical = (missing_locations > 0 or missing_horizons > 0 or missing_dates > 0)
+            
+            if total_missing > 0:
+                completion_rate = (total_actual / total_expected) * 100
+                display_text = f"missing {missing_locations}Lx{missing_horizons}Hx{missing_dates}D / {completion_rate:.0f}% (missing {total_missing}/{total_expected})"
+                missing_info[model] = {"text": display_text, "critical": is_critical}
+            else:
+                missing_info[model] = {"text": "", "critical": False}
+    
+    return missing_info
+
+
 def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, top_n: int = 10):
     """
     Print leaderboard for specified metric using filtered DataFrame.
@@ -782,7 +843,7 @@ def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, 
     
     top_models = rankings.head(top_n)
     
-    print(f"\n🏆 TOP {top_n} LEADERBOARD: {metric.upper()} ({aggregation.upper()})")
+    print(f"\nTOP {top_n} LEADERBOARD: {metric.upper()} ({aggregation.upper()})")
     print("=" * 60)
     
     for rank, (model, score) in enumerate(top_models.items(), 1):
