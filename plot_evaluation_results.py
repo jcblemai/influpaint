@@ -164,9 +164,10 @@ def get_missing_data_for_plot(original_df: pd.DataFrame, models_in_plot: List[st
 # %% Main Script
 
 if __name__ == "__main__":
-    # Load data
-    df_raw = pd.read_csv(CSV_PATH)
+    # Load data with proper location column handling
+    df_raw = pd.read_csv(CSV_PATH, dtype={'location': str})
     df_raw['target_end_date'] = pd.to_datetime(df_raw['target_end_date']).dt.date
+    df_raw['location'] = df_raw['location'].astype(str).str.strip()
     
     # Filter out problematic models from analysis
     # i808 models have issues, UGuelph-CompositeCurve makes plot scale badly

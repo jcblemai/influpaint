@@ -6,23 +6,17 @@ Replicates 4-evaluate-candidates.py functionality using R scoringutils for WIS s
 
 import pandas as pd
 import numpy as np
-import subprocess
-import tempfile
 import os
 import datetime as dt
 import time
 from typing import Dict, List, Optional, Tuple
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class Config:
     """Configuration settings for evaluation (copied from 4-evaluate-candidates.py)."""
     
     # File paths
-    JOBS_FILE = "inpaint_jobs_paper-2025-07-22.txt"
+    JOBS_FILE = "paper_runs_2025-07-22/inpaint_jobs_paper-2025-07-22.txt"
     INPAINT_RES_BASE = "from_longleaf/influpaint_res"
     
     FLUSIGHT_BASES = {
@@ -32,18 +26,17 @@ class Config:
     
     # Model filtering
     IGNORED_FLUSIGHT_MODELS = {
-        "LosAlamos_NAU-CModel_Flu",
-        "SigSci-CREG", 
-        "SigSci-TSENS",
-        "LUcompUncertLab-experthuman",
-        "VTSanghani-ExogModel",
-        "CADPH-FluCAT_Ensemble",
+        #"LosAlamos_NAU-CModel_Flu",
+        #"SigSci-CREG", 
+        #"SigSci-TSENS",
+        #"LUcompUncertLab-experthuman",
+        #"VTSanghani-ExogModel",
+        #"CADPH-FluCAT_Ensemble",
     }
     
     # Evaluation parameters
     TARGET_NAME = "wk inc flu hosp"
     HORIZONS = [0, 1, 2, 3]
-    ALLOW_MISSING_DATES_PER_MODEL = 5
     
     # Quantile requirements for forecasts
     REQUIRED_QUANTILES = [0.01, 0.025] + list(np.arange(0.05, 0.95 + 0.05, 0.05)) + [0.975, 0.99]
@@ -53,34 +46,15 @@ class ScoringutilsFullEvaluator:
     """Full evaluator using R scoringutils for real influpaint vs flusight data."""
     
     def __init__(self):
-        """Initialize evaluator and find working R."""
-        self.rscript_path = self.find_working_rscript()
-        if not self.rscript_path:
-            raise RuntimeError("Could not find R installation with scoringutils")
-    
-    def find_working_rscript(self) -> str:
-        """Find Rscript that has scoringutils installed."""
-        candidates = ['/usr/local/bin/Rscript', '/usr/bin/Rscript']
-        
-        for rscript in candidates:
-            if os.path.exists(rscript):
-                try:
-                    subprocess.check_output([rscript, '-e', 'library(scoringutils); cat("OK")'], 
-                                          stderr=subprocess.DEVNULL)
-                    print(f"✓ Found working Rscript: {rscript}")
-                    return rscript
-                except:
-                    continue
-        
-        print("❌ No working Rscript found with scoringutils")
-        return None
+        """Initialize evaluator."""
+        pass
     
     # Copy helper functions from 4-evaluate-candidates.py
     def read_jobs(self, jobs_file: Optional[str] = None) -> pd.DataFrame:
         """Read job dates from inpaint jobs file."""
         if jobs_file is None:
             jobs_file = Config.JOBS_FILE
-        df = pd.read_csv(jobs_file)
+        df = pd.read_csv(jobs_file, dtype={'location': str})
         df["date"] = pd.to_datetime(df["date"]).dt.date
         return df
     
@@ -102,8 +76,9 @@ class ScoringutilsFullEvaluator:
         if not os.path.exists(p):
             raise FileNotFoundError(f"Ground truth file not found: {p}")
         
-        gt = pd.read_csv(p)
+        gt = pd.read_csv(p, dtype={'location': str})
         gt["date"] = pd.to_datetime(gt["date"]).dt.date
+        gt["location"] = gt["location"].astype(str).str.strip()
         required_cols = ["date", "location", "value"]
         return gt[required_cols]
     
@@ -124,7 +99,7 @@ class ScoringutilsFullEvaluator:
         if not os.path.exists(p):
             raise FileNotFoundError(p)
         
-        df = pd.read_csv(p)
+        df = pd.read_csv(p, dtype={'location': str})
         df["target_end_date"] = pd.to_datetime(df["target_end_date"]).dt.date
         df["output_type_id"] = pd.to_numeric(df["output_type_id"], errors="coerce")
         df["horizon"] = pd.to_numeric(df["horizon"], errors="coerce")
@@ -185,7 +160,7 @@ class ScoringutilsFullEvaluator:
                     have = sorted(df["output_type_id"].unique().tolist())
                     missing_q = sorted(set(np.round(Config.REQUIRED_QUANTILES, 6)) - set(np.round(have, 6)))
                     if missing_q:
-                        continue
+                        continue  # Skip models with missing quantiles
                     
                     # Add metadata
                     df['model'] = model
@@ -193,12 +168,12 @@ class ScoringutilsFullEvaluator:
                     df['forecast_date'] = d
                     all_forecasts.append(df)
                     present += 1
-                except Exception:
-                    continue
+                except FileNotFoundError:
+                    continue  # Missing date for this model
+                except Exception as e:
+                    raise RuntimeError(f"Failed to load {model} for date {d}: {e}")
             
-            missing = len(dates) - present
-            if missing <= Config.ALLOW_MISSING_DATES_PER_MODEL:
-                print(f"  {model}: {present}/{len(dates)} dates")
+            print(f"  {model}: {present}/{len(dates)} dates")
         
         # Collect InfluPaint forecasts
         print(f"Collecting InfluPaint forecasts for {season}...")
@@ -220,7 +195,7 @@ class ScoringutilsFullEvaluator:
                     continue
                     
                 try:
-                    df = pd.read_csv(by_date[d])
+                    df = pd.read_csv(by_date[d], dtype={'location': str})
                     
                     # Normalize column names
                     if "output_type" not in df.columns and "type" in df.columns:
@@ -237,7 +212,7 @@ class ScoringutilsFullEvaluator:
                     have = sorted(df["output_type_id"].unique().tolist())
                     missing_q = sorted(set(np.round(Config.REQUIRED_QUANTILES, 6)) - set(np.round(have, 6)))
                     if missing_q:
-                        continue
+                        continue  # Skip models with missing quantiles
                     
                     # Add metadata
                     df['model'] = run_name
@@ -245,12 +220,12 @@ class ScoringutilsFullEvaluator:
                     df['forecast_date'] = d
                     all_forecasts.append(df)
                     present += 1
-                except Exception:
-                    continue
+                except FileNotFoundError:
+                    continue  # Missing date for this model  
+                except Exception as e:
+                    raise RuntimeError(f"Failed to load {run_name} for date {d}: {e}")
             
-            missing = len(dates) - present
-            if missing <= Config.ALLOW_MISSING_DATES_PER_MODEL:
-                print(f"  {run_name}: {present}/{len(dates)} dates")
+            print(f"  {run_name}: {present}/{len(dates)} dates")
         
         if not all_forecasts:
             raise RuntimeError(f"No valid forecasts found for {season}")
@@ -293,61 +268,11 @@ class ScoringutilsFullEvaluator:
         
         return combined
     
-    def evaluate_season(self, season: str, dates: List[dt.date], save_dir: str) -> Dict:
-        """Evaluate a single season using scoringutils."""
-        print(f"\n🚀 Evaluating {season} with {len(dates)} dates")
-        os.makedirs(save_dir, exist_ok=True)
-        
-        try:
-            # Collect all forecasts
-            all_forecasts = self.collect_all_forecasts(season, dates)
-            
-            # Load ground truth
-            truth_df = self.load_ground_truth(season)
-            
-            # Score with scoringutils
-            scores_df = self.score_with_scoringutils(all_forecasts, truth_df)
-            
-            # Print summary
-            print(f"\n📊 Results Summary for {season}:")
-            print("="*50)
-            
-            # Overall summary
-            total_models = len(scores_df['model'].unique())
-            print(f"Total models evaluated: {total_models}")
-            
-            # Group summary
-            group_summary = scores_df.groupby('group')['wis'].agg(['count', 'mean', 'std']).round(3)
-            print(f"\nWIS by group:")
-            print(group_summary)
-            
-            # Top models
-            model_wis = scores_df.groupby(['model', 'group'])['wis'].mean().sort_values()
-            print(f"\nTop 10 models by WIS:")
-            print(model_wis.head(10))
-            
-            # Save results
-            results_file = os.path.join(save_dir, f'{season}_scoringutils_results.csv')
-            scores_df.to_csv(results_file, index=False)
-            print(f"✓ Saved detailed results: {results_file}")
-            
-            return {
-                'season': season,
-                'scores_df': scores_df,
-                'forecasts_df': all_forecasts,
-                'truth_df': truth_df,
-                'summary': group_summary,
-                'save_dir': save_dir
-            }
-            
-        except Exception as e:
-            print(f"❌ Error evaluating {season}: {e}")
-            raise
     
     def run_full_evaluation(self):
         """Run full evaluation for all seasons and save combined results."""
         total_start = time.time()
-        print("🚀 Starting full InfluPaint vs FluSight evaluation using scoringutils")
+        print("Starting InfluPaint vs FluSight evaluation using scoringutils")
         
         # Read jobs and get seasons
         jobs = self.read_jobs()
@@ -363,7 +288,7 @@ class ScoringutilsFullEvaluator:
                 print(f"Skipping {season}: no local FluSight data")
                 continue
             
-            print(f"\n📊 Processing {season}...")
+            print(f"\n Processing {season}...")
             
             # Collect forecasts for this season
             season_forecasts = self.collect_all_forecasts(season, dates)
@@ -383,19 +308,19 @@ class ScoringutilsFullEvaluator:
         combined_truth = pd.concat(all_truth, ignore_index=True)
         
         data_elapsed = time.time() - data_start
-        print(f"⏱️  Data collection completed in {data_elapsed:.2f} seconds")
+        print(f"Data collection completed in {data_elapsed:.2f} seconds")
         
-        print(f"\n🔄 Combined data:")
+        print(f"\n Combined data:")
         print(f"  Total forecasts: {len(combined_forecasts):,}")
         print(f"  Total models: {len(combined_forecasts['model'].unique())}")
         print(f"  Seasons: {sorted(combined_forecasts['season'].unique())}")
         
         # Prepare combined data in Python (all data wrangling done here)
-        print("\n🔧 Preparing combined dataset...")
+        print("\n Preparing combined dataset...")
         prep_start = time.time()
         combined_data = self.prepare_combined_data(combined_forecasts, combined_truth)
         prep_elapsed = time.time() - prep_start
-        print(f"⏱️  Data preparation completed in {prep_elapsed:.2f} seconds")
+        print(f"Data preparation completed in {prep_elapsed:.2f} seconds")
         
         # Save combined data to disk for R to use
         save_dir = "results"
@@ -406,7 +331,7 @@ class ScoringutilsFullEvaluator:
         print(f"✓ Saved combined data: {combined_file}")
         
         # Print summary for user
-        print(f"\n📊 Data Summary:")
+        print(f"\n Data Summary:")
         print("="*60)
         print(f"Total records ready for scoring: {len(combined_data):,}")
         print(f"Models: {len(combined_data['model'].unique())}")
@@ -424,11 +349,11 @@ class ScoringutilsFullEvaluator:
         
         # Final timing
         total_elapsed = time.time() - total_start
-        print(f"\n⏱️  TOTAL DATA PREPARATION TIME: {total_elapsed:.2f} seconds")
-        print(f"💾 Combined data saved to: {combined_file}")
+        print(f"\n TOTAL DATA PREPARATION TIME: {total_elapsed:.2f} seconds")
+        print(f"Combined data saved to: {combined_file}")
         
         print(f"\n🎯 Ready for R scoring!")
-        print(f"Run: Rscript score_with_scoringutils.R {combined_file} results/scoringutils_scores.csv")
+        print(f"Next: Rscript score_with_scoringutils.R {combined_file} results/scoringutils_scores.csv")
         
         return {
             'combined_data': combined_data,
@@ -443,13 +368,9 @@ class ScoringutilsFullEvaluator:
 
 def main():
     """Main function to run full evaluation."""
-    try:
-        evaluator = ScoringutilsFullEvaluator()
-        results = evaluator.run_full_evaluation()
-        return results
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        raise
+    evaluator = ScoringutilsFullEvaluator()
+    results = evaluator.run_full_evaluation()
+    return results
 
 
 if __name__ == "__main__":

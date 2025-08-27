@@ -168,8 +168,9 @@ def process_folder(folder_path, gt_cache, season_setup, verbose=False):
 def read_jobs_file(jobs_file="inpaint_jobs_paper-2025-07-22.txt"):
     """Read the original jobs file to map failed results back to job IDs."""
     try:
-        df = pd.read_csv(jobs_file)
+        df = pd.read_csv(jobs_file, dtype={'location': str})
         df["date"] = pd.to_datetime(df["date"]).dt.date
+        df['location'] = df['location'].astype(str).str.strip()
         return df
     except Exception as e:
         print(f"ERROR: Could not read jobs file {jobs_file}: {e}")

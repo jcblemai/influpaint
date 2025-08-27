@@ -18,7 +18,7 @@ output_file <- args[2]
 library(scoringutils)
 library(dplyr)
 
-cat("🧮 Starting scoringutils evaluation...\n")
+cat("Starting scoringutils evaluation...\n")
 cat("Combined file:", combined_file, "\n")
 cat("Output file:", output_file, "\n")
 
@@ -26,10 +26,10 @@ cat("Output file:", output_file, "\n")
 cat("Loading combined data...\n")
 start_time <- Sys.time()
 
-combined <- read.csv(combined_file)
+combined <- read.csv(combined_file, stringsAsFactors = FALSE, colClasses = list(location = "character"))
 
 load_time <- Sys.time() - start_time
-cat("⏱️  Data loading completed in", round(as.numeric(load_time, units="secs"), 2), "seconds\n")
+cat("Data loading completed in", round(as.numeric(load_time, units="secs"), 2), "seconds\n")
 
 cat("Loaded combined data:", nrow(combined), "rows\n")
 cat("Unique models:", length(unique(combined$model)), "\n")
@@ -57,7 +57,7 @@ forecast_object <- as_forecast_quantile(
 )
 
 convert_time <- Sys.time() - convert_start
-cat("⏱️  Format conversion completed in", round(as.numeric(convert_time, units="secs"), 2), "seconds\n")
+cat("Format conversion completed in", round(as.numeric(convert_time, units="secs"), 2), "seconds\n")
 
 # Score with default metrics
 cat("Computing scores...\n")
@@ -66,7 +66,7 @@ score_start <- Sys.time()
 scores <- forecast_object %>% score()
 
 score_time <- Sys.time() - score_start
-cat("⏱️  Scoring completed in", round(as.numeric(score_time, units="secs"), 2), "seconds\n")
+cat("Scoring completed in", round(as.numeric(score_time, units="secs"), 2), "seconds\n")
 
 cat("Computed scores:", nrow(scores), "rows\n")
 cat("Available columns:", paste(unique(colnames(scores)), collapse = ", "), "\n")
@@ -80,5 +80,5 @@ cat("Saving results...\n")
 write.csv(scores, output_file, row.names = FALSE)
 
 total_time <- Sys.time() - start_time
-cat("⏱️  TOTAL R PROCESSING TIME:", round(as.numeric(total_time, units="secs"), 2), "seconds\n")
-cat("✅ Results saved to:", output_file, "\n")
+cat("TOTAL R PROCESSING TIME:", round(as.numeric(total_time, units="secs"), 2), "seconds\n")
+cat("Results saved to:", output_file, "\n")
