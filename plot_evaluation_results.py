@@ -150,17 +150,6 @@ def get_missing_data_for_plot(original_df: pd.DataFrame, models_in_plot: List[st
     return compute_missing_data(original_df, models_in_plot, expected_locations, expected_horizons, expected_dates)
 
 
-
-
-
-
-
-
-
-
-
-
-
 # %% Main Script
 
 if __name__ == "__main__":
@@ -173,6 +162,7 @@ if __name__ == "__main__":
     # i808 models have issues, UGuelph-CompositeCurve makes plot scale badly
     df_raw = df_raw[~df_raw['model'].str.startswith('i808')]
     df_raw = df_raw[df_raw['model'] != 'UGuelph-CompositeCurve']
+    df_raw = df_raw[df_raw['model'] != 'CADPH-FluCAT_Ensemble']
     
     # Calculate relative WIS against baseline for all data
     baseline_model = 'FluSight-baseline'
