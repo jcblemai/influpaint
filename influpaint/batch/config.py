@@ -28,7 +28,7 @@ AVAILABLE_UNETS = ["Rx124", "Rx1224", "Cx1224", "Rx12448"] #  "Cx12448", Cx124
 AVAILABLE_DATASETS = ["100S", "70S30M", "30S70M", "100M"] #R1Fv, R1
 AVAILABLE_TRANSFORMS = ["Lins", "Sqrt", "LinsZs", "LogZs"]
 AVAILABLE_ENRICHMENTS = ["No", "PoisPadScale", "PoisPadScaleSmall", "Pois"]
-AVAILABLE_COPAINT_CONFIGS = ["celebahq_noTTJ5",  "celebahq_try3", "celebahq"] # "celebahq_try1", "celebahq_noTT2",
+AVAILABLE_COPAINT_CONFIGS = ["celebahq_noTTJ5",  "celebahq_try3", "celebahq"] # friendly: short-jump (no TT), short-jump (TT), long-jump (TT)
 
 # Making a baseline to prune the search space
 CONFIG_BASELINE = {
@@ -246,6 +246,10 @@ def transform_library(scaling_per_channel, data_mean, data_std):
 
 def copaint_config_library(timesteps):
     """CoPaint inpainting configurations"""
+    # Friendly names map:
+    #  - celebahq_try3   -> short-jump (TT)     : jump_length=5, use_timetravel=True,  num_iteration_optimize_xt=5
+    #  - celebahq_noTTJ5 -> short-jump (no TT)  : jump_length=5, use_timetravel=False, num_iteration_optimize_xt=2
+    #  - celebahq        -> long-jump (TT)      : jump_length=10, use_timetravel=True, num_iteration_optimize_xt=2
     config_lib = {
         "celebahq_try1": config.Config(default_config_dict={
             "respace_interpolate": False,
@@ -277,7 +281,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq_noTTJ5": config.Config(default_config_dict={
+        "celebahq_noTTJ5": config.Config  # short-jump (no TT)(default_config_dict={
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
@@ -337,7 +341,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq_try3": config.Config(default_config_dict={
+        "celebahq_try3": config.Config    # short-jump (TT)(default_config_dict={
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
@@ -367,7 +371,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq": config.Config(default_config_dict={
+        "celebahq": config.Config         # long-jump (TT)(default_config_dict={
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
