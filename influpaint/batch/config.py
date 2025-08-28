@@ -281,7 +281,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq_noTTJ5": config.Config  # short-jump (no TT)(default_config_dict={
+        "celebahq_noTTJ5": config.Config(default_config_dict={ # short-jump (no TT)
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
@@ -341,7 +341,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq_try3": config.Config    # short-jump (TT)(default_config_dict={
+        "celebahq_try3": config.Config(default_config_dict={ # short-jump (TT)
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
@@ -371,7 +371,7 @@ def copaint_config_library(timesteps):
             "debug": False
         }, use_argparse=False),
         
-        "celebahq": config.Config         # long-jump (TT)(default_config_dict={
+        "celebahq": config.Config(default_config_dict={  # long-jump (TT)
             "respace_interpolate": False,
             "ddim": {
                 "ddim_sigma": 0.0,
