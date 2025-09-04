@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 from typing import Dict, List, Union
 
 # Set unified style for all plots
@@ -867,3 +869,112 @@ def get_rankings(metric: str, aggregation: str, filtered_df: pd.DataFrame, ascen
 def print_ladderboard(metric: str, aggregation: str, filtered_df: pd.DataFrame, top_n: int = 10):
     """Print leaderboard - wrapper for backward compatibility."""
     get_rankings(metric, aggregation, filtered_df, ascending=True, print_top_n=top_n)
+
+
+def plot_interactive_model_selection(leaderboard_df: pd.DataFrame, title: str = "Interactive Model Selection", save_path: str = None):
+    """
+    Create interactive Plotly subplots for model selection showing WIS vs relative_WIS across seasons.
+    Each model appears in all seasons with consistent color and linked hover/selection.
+    Shows only models that are top 5 in at least one season and metric.
+    
+    Args:
+        leaderboard_df: DataFrame with columns ['season', 'model', 'wis', 'relative_wis'] 
+        title: Plot title
+        save_path: Path to save HTML file
+    """
+    from plotly.subplots import make_subplots
+    
+    # Find models that are top 5 in at least one season and metric
+    top_models = set()
+    for season in leaderboard_df['season'].unique():
+        season_data = leaderboard_df[leaderboard_df['season'] == season]
+        
+        # Top 5 by WIS (lower is better)
+        wis_top5 = season_data.nsmallest(5, 'wis')['model'].tolist()
+        top_models.update(wis_top5)
+        
+        # Top 5 by relative_WIS (closer to 1.0 is better)
+        rel_wis_top5 = season_data.iloc[(season_data['relative_wis'] - 1.0).abs().argsort()[:5]]['model'].tolist()
+        top_models.update(rel_wis_top5)
+    
+    # Filter to only top models
+    filtered_df = leaderboard_df[leaderboard_df['model'].isin(top_models)]
+    
+    # Get unique seasons and models
+    seasons = sorted(filtered_df['season'].unique())
+    models = sorted(filtered_df['model'].unique())
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=1, cols=len(seasons),
+        subplot_titles=seasons,
+        shared_yaxes=True,
+        horizontal_spacing=0.08
+    )
+    
+    # Generate consistent colors for each model
+    colors = px.colors.qualitative.Set1 + px.colors.qualitative.Set2 + px.colors.qualitative.Set3
+    model_colors = {model: colors[i % len(colors)] for i, model in enumerate(models)}
+    
+    # Add traces for each model across all seasons
+    for model in models:
+        model_data = filtered_df[filtered_df['model'] == model]
+        
+        for i, season in enumerate(seasons):
+            season_data = model_data[model_data['season'] == season]
+            
+            if not season_data.empty:
+                wis_val = season_data['wis'].iloc[0]
+                rel_wis_val = season_data['relative_wis'].iloc[0]
+                
+                fig.add_trace(go.Scatter(
+                    x=[wis_val],
+                    y=[rel_wis_val],
+                    mode='markers',
+                    name=model,
+                    legendgroup=model,
+                    showlegend=(i == 0),  # Only show in legend once
+                    marker=dict(
+                        size=10,
+                        color=model_colors[model],
+                        opacity=0.8
+                    ),
+                    hovertemplate=f'<b>{model}</b><br>' +
+                                 f'{season}<br>' +
+                                 'WIS: %{x:.3f}<br>' +
+                                 'Relative WIS: %{y:.3f}<br>' +
+                                 '<extra></extra>'
+                ), row=1, col=i+1)
+    
+    # Add baseline reference lines to all subplots
+    for i in range(len(seasons)):
+        fig.add_hline(y=1.0, line_dash="dash", line_color="black", opacity=0.5,
+                      row=1, col=i+1)
+    
+    # Update layout
+    fig.update_layout(
+        title=title,
+        height=650,
+        width=1400,
+        hovermode='closest',
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.15,
+            xanchor="center",
+            x=0.5
+        )
+    )
+    
+    # Update x-axis labels
+    for i in range(len(seasons)):
+        fig.update_xaxes(title_text="WIS", row=1, col=i+1)
+    
+    # Update y-axis label (only first subplot)
+    fig.update_yaxes(title_text="Relative WIS", row=1, col=1)
+    
+    if save_path:
+        fig.write_html(save_path)
+        print(f"Saved interactive plot to: {save_path}")
+    
+    return fig

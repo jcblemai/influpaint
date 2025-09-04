@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 # Import the existing SeasonAxis and benchmark plotting
 from influpaint.utils.season_axis import SeasonAxis
-from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked, print_ladderboard, compute_missing_data, get_rankings
+from benchmark_plotting import plot_components, plot_timeseries, plot_wis_heatmap, plot_cumulative_timeseries, plot_multi_location_stacked, print_ladderboard, compute_missing_data, get_rankings, plot_interactive_model_selection
 
 
 # %% Configuration
@@ -525,6 +525,33 @@ if __name__ == "__main__":
         lb_df = lb_df.sort_values(sort_cols)
         lb_df.to_csv(LEADERBOARD_CSV, index=False)
         print(f"\nSaved full leaderboard to: {LEADERBOARD_CSV}")
+        
+        # Create interactive model selection plot for InfluPaint models only
+        influpaint_leaderboard = lb_df[lb_df['model'].isin(
+            df_with_flags[df_with_flags['group'] == 'influpaint']['model'].unique()
+        )]
+        
+        # Filter for WIS metric with sum aggregation for the interactive plot
+        wis_data = influpaint_leaderboard[
+            (influpaint_leaderboard['metric'] == 'wis') & 
+            (influpaint_leaderboard['aggregation'] == 'sum')
+        ][['season', 'model', 'score']].rename(columns={'score': 'wis'})
+        
+        # Get relative WIS data
+        rel_wis_data = influpaint_leaderboard[
+            (influpaint_leaderboard['metric'] == 'relative_wis') & 
+            (influpaint_leaderboard['aggregation'] == 'mean')
+        ][['season', 'model', 'score']].rename(columns={'score': 'relative_wis'})
+        
+        # Merge WIS and relative WIS data
+        interactive_data = wis_data.merge(rel_wis_data, on=['season', 'model'], how='inner')
+        
+        interactive_save_path = os.path.join(SAVE_DIR, "interactive_model_selection.html")
+        plot_interactive_model_selection(
+            leaderboard_df=interactive_data,
+            title="InfluPaint Model Selection",
+            save_path=interactive_save_path
+        )
 
     print(f"\n{'='*50}")
     print(f"ALL PLOTS SAVED TO: {SAVE_DIR}")
