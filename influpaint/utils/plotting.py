@@ -10,6 +10,26 @@ import xarray as xr
 
 
 
+def plot_mask(gt_xarr, gt_keep_mask, channel=0):
+    "here mask is not transformed"
+    fig, axes = plt.subplots(1, 3, figsize=(8,8), dpi=200, sharex=True, sharey=True)
+    import matplotlib as mpl
+    cmap_greys = mpl.colormaps.get_cmap('Greys')
+    cmap_rainbow = mpl.colormaps.get_cmap("RdYlGn")
+    cmap_greys.set_bad(color='red')
+    cmap_rainbow.set_bad(color='red')
+    axes[0].imshow(gt_xarr.data[channel].T, cmap=cmap_greys)
+    axes[0].set_title("Ground-Truth Only", fontsize=8)
+
+    axes[1].imshow(gt_keep_mask[channel].T, alpha=.3, cmap = cmap_rainbow)
+    axes[1].set_title("Inpainting Mask", fontsize=8)
+    
+
+
+    axes[2].imshow(gt_xarr.data[channel].T, cmap=cmap_greys)
+    axes[2].imshow(gt_keep_mask[channel].T, alpha=.3, cmap = cmap_rainbow)
+    axes[2].set_title("Ground Truth Masked", fontsize=8)
+    return fig, axes
 
 
 def plot_to_ax(array, ax=None, place=None, multi=False, channels=1):

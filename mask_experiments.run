@@ -1,0 +1,10 @@
+#!/bin/bash
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -t 10:00:00
+#SBATCH --gres=gpu:1
+#SBATCH -p jlessler
+#SBATCH --nodelist="g1803jles01"
+
+/nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python mask_experiments.py
