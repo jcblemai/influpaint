@@ -77,41 +77,19 @@ def main(experiment_name, output_file, output_timeseries):
         summary_data.append(run_summary)
         
         # Get full loss time series for this run
-        try:
-            # Try to get step-by-step loss metrics
-            loss_history = client.get_metric_history(run_id, "loss")
-            if loss_history:
-                print(f"Found {len(loss_history)} loss steps for run {scenario_id}")
-                for metric in loss_history:
-                    timeseries_data.append({
-                        'run_id': run_id,
-                        'scenario_id': scenario_id,
-                        'scenario_string': scenario_string,
-                        'step': metric.step,
-                        'timestamp': metric.timestamp,
-                        'loss': metric.value
-                    })
-            else:
-                # Try alternative metric names
-                for metric_name in ["train_loss", "training_loss", "epoch_loss"]:
-                    loss_history = client.get_metric_history(run_id, metric_name)
-                    if loss_history:
-                        print(f"Found {len(loss_history)} {metric_name} steps for run {scenario_id}")
-                        for metric in loss_history:
-                            timeseries_data.append({
-                                'run_id': run_id,
-                                'scenario_id': scenario_id,
-                                'scenario_string': scenario_string,
-                                'step': metric.step,
-                                'timestamp': metric.timestamp,
-                                'loss': metric.value
-                            })
-                        break
-                else:
-                    print(f"No loss time series found for run {scenario_id}")
-                    
-        except Exception as e:
-            print(f"Error getting loss history for run {scenario_id}: {e}")
+
+            # Note that there are also step loss
+        loss_history = client.get_metric_history(run_id, "epoch_loss")
+        print(f"Found {len(loss_history)} loss steps for run {scenario_id}")
+        for metric in loss_history:
+            timeseries_data.append({
+                'run_id': run_id,
+                'scenario_id': scenario_id,
+                'scenario_string': scenario_string,
+                'step': metric.step,
+                'timestamp': metric.timestamp,
+                'loss': metric.value
+            })
     
     # Create DataFrames
     summary_df = pd.DataFrame(summary_data)
@@ -130,18 +108,6 @@ def main(experiment_name, output_file, output_timeseries):
         completed_summary = completed_summary.sort_values('scenario_id')
         completed_summary.to_csv(output_file, index=False)
         print(f"Summary saved to: {output_file}")
-        
-        # Display summary
-        print(f"\nSummary:")
-        print(f"Total completed runs: {len(completed_summary)}")
-        print(f"Unique scenarios: {completed_summary['scenario_string'].nunique()}")
-        print(f"Final loss range: {completed_summary['final_loss'].min():.6f} - {completed_summary['final_loss'].max():.6f}")
-        print(f"Mean final loss: {completed_summary['final_loss'].mean():.6f}")
-        
-        # Show first few rows
-        print("\nFirst few rows:")
-        display_cols = ['scenario_id', 'scenario_string', 'final_loss', 'avg_loss_last_100']
-        print(completed_summary[display_cols].head(10).to_string(index=False))
     
     # Save time series data
     if len(timeseries_df) > 0:

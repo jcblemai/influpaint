@@ -120,28 +120,51 @@ baseline_models = df_parsed[
 ]
 
 # Get best performing model for baseline configuration
-baseline_combined = baseline_models[
+baseline_combined_wis = baseline_models[
     (baseline_models['season'] == 'Combined') & 
     (baseline_models['metric'] == 'wis') & 
     (baseline_models['aggregation'] == 'sum')
 ]
-baseline_model = baseline_combined.loc[baseline_combined['score'].idxmin()]
+baseline_model = baseline_combined_wis.loc[baseline_combined_wis['score'].idxmin()]
 baseline_wis = baseline_model['score']
+
+# Get corresponding relative WIS for the same model
+baseline_combined_rel = baseline_models[
+    (baseline_models['season'] == 'Combined') & 
+    (baseline_models['metric'] == 'relative_wis') & 
+    (baseline_models['aggregation'] == 'mean') &
+    (baseline_models['model'] == baseline_model['model'])
+]
+baseline_rel_wis = baseline_combined_rel['score'].iloc[0]
 
 print(f"Baseline model: {baseline_model['model']}")
 print(f"Baseline WIS: {baseline_wis:.0f}")
+print(f"Baseline Relative WIS: {baseline_rel_wis:.3f}")
 
 # %%
-# Analyze parameter effects
-def analyze_parameter_effect(param_name, baseline_value):
-    """Analyze effect of changing one parameter from baseline"""
+def extract_inpaint_config(model_name):
+    """Extract and clean inpainting config from model name"""
+    match = re.search(r'::inpaint_CoPaint::(\w+)', model_name)
+    if match:
+        config = match.group(1)
+        return config.replace('celebahq_', '')  # Remove prefix
+    return 'unknown'
+# Analyze parameter effects for both WIS and relative WIS
+def analyze_parameter_effect(param_name, baseline_value, baseline_wis, baseline_rel_wis):
+    """Analyze effect of changing one parameter from baseline for both WIS and relative WIS"""
     results = []
     
-    # Filter to Combined season, WIS metric, sum aggregation
+    # Filter to Combined season
     combined_wis = df_parsed[
         (df_parsed['season'] == 'Combined') & 
         (df_parsed['metric'] == 'wis') & 
         (df_parsed['aggregation'] == 'sum')
+    ]
+    
+    combined_rel_wis = df_parsed[
+        (df_parsed['season'] == 'Combined') & 
+        (df_parsed['metric'] == 'relative_wis') & 
+        (df_parsed['aggregation'] == 'mean')
     ]
     
     # Get unique values for this parameter
@@ -151,8 +174,8 @@ def analyze_parameter_effect(param_name, baseline_value):
         if value == baseline_value:
             continue
             
-        # Find models that differ only in this parameter
-        matching_models = combined_wis[
+        # Find models that differ only in this parameter (WIS)
+        matching_wis = combined_wis[
             (combined_wis['ddpm_name'] == (CONFIG_BASELINE['ddpm_name'] if param_name != 'ddpm_name' else value)) &
             (combined_wis['unet_name'] == (CONFIG_BASELINE['unet_name'] if param_name != 'unet_name' else value)) &
             (combined_wis['dataset_name'] == (CONFIG_BASELINE['dataset_name'] if param_name != 'dataset_name' else value)) &
@@ -161,67 +184,179 @@ def analyze_parameter_effect(param_name, baseline_value):
             (combined_wis[param_name] == value)
         ]
         
-        # Take best score for this parameter value
-        best_score = matching_models['score'].min()
-        improvement = (baseline_wis - best_score) / baseline_wis * 100
+        # Find corresponding relative WIS models
+        matching_rel_wis = combined_rel_wis[
+            (combined_rel_wis['ddpm_name'] == (CONFIG_BASELINE['ddpm_name'] if param_name != 'ddpm_name' else value)) &
+            (combined_rel_wis['unet_name'] == (CONFIG_BASELINE['unet_name'] if param_name != 'unet_name' else value)) &
+            (combined_rel_wis['dataset_name'] == (CONFIG_BASELINE['dataset_name'] if param_name != 'dataset_name' else value)) &
+            (combined_rel_wis['transform_name'] == (CONFIG_BASELINE['transform_name'] if param_name != 'transform_name' else value)) &
+            (combined_rel_wis['enrich_name'] == (CONFIG_BASELINE['enrich_name'] if param_name != 'enrich_name' else value)) &
+            (combined_rel_wis[param_name] == value)
+        ]
         
-        results.append({
-            'parameter': param_name,
-            'value': value,
-            'wis': best_score,
-            'improvement_pct': improvement,
-            'n_models': len(matching_models)
-        })
+        if len(matching_wis) > 0 and len(matching_rel_wis) > 0:
+            # Take best scores for this parameter value
+            best_wis = matching_wis['score'].min()
+            best_rel_wis = matching_rel_wis['score'].min()
+            
+            wis_improvement = (baseline_wis - best_wis) / baseline_wis * 100
+            rel_wis_improvement = (baseline_rel_wis - best_rel_wis) / baseline_rel_wis * 100
+            
+            results.append({
+                'parameter': param_name,
+                'value': value,
+                'wis': best_wis,
+                'relative_wis': best_rel_wis,
+                'wis_improvement_pct': wis_improvement,
+                'rel_wis_improvement_pct': rel_wis_improvement,
+                'n_models': len(matching_wis)
+            })
     
     return pd.DataFrame(results)
 
-# Analyze all parameters
+# Analyze all parameters including inpainting config
 all_effects = []
 for param, baseline_val in CONFIG_BASELINE.items():
     param_key = f"{param}"
-    effects = analyze_parameter_effect(param_key, baseline_val)
+    effects = analyze_parameter_effect(param_key, baseline_val, baseline_wis, baseline_rel_wis)
     all_effects.append(effects)
 
+# Add inpainting config analysis - need to get baseline inpaint config first
+baseline_inpaint_config = extract_inpaint_config(baseline_model['model'])
+print(f"Baseline Inpaint Config: {baseline_inpaint_config}")
+
+# Analyze inpainting config effects
+inpaint_effects = []
+unique_configs = df_parsed['model'].apply(extract_inpaint_config).unique()
+
+for config in unique_configs:
+    if config == baseline_inpaint_config or config == 'unknown':
+        continue
+    
+    # Find models with this inpaint config
+    config_models_wis = df_parsed[
+        (df_parsed['season'] == 'Combined') & 
+        (df_parsed['metric'] == 'wis') & 
+        (df_parsed['aggregation'] == 'sum') &
+        (df_parsed['model'].apply(extract_inpaint_config) == config)
+    ]
+    
+    config_models_rel = df_parsed[
+        (df_parsed['season'] == 'Combined') & 
+        (df_parsed['metric'] == 'relative_wis') & 
+        (df_parsed['aggregation'] == 'mean') &
+        (df_parsed['model'].apply(extract_inpaint_config) == config)
+    ]
+    
+    if len(config_models_wis) > 0 and len(config_models_rel) > 0:
+        best_wis = config_models_wis['score'].min()
+        best_rel_wis = config_models_rel['score'].min()
+        
+        wis_improvement = (baseline_wis - best_wis) / baseline_wis * 100
+        rel_wis_improvement = (baseline_rel_wis - best_rel_wis) / baseline_rel_wis * 100
+        
+        inpaint_effects.append({
+            'parameter': 'inpaint_config',
+            'value': config,
+            'wis': best_wis,
+            'relative_wis': best_rel_wis,
+            'wis_improvement_pct': wis_improvement,
+            'rel_wis_improvement_pct': rel_wis_improvement,
+            'n_models': len(config_models_wis)
+        })
+
+if inpaint_effects:
+    inpaint_df = pd.DataFrame(inpaint_effects)
+    all_effects.append(inpaint_df)
+
 param_effects = pd.concat(all_effects, ignore_index=True)
+param_effects["wis_improvement_pct"] = param_effects["wis_improvement_pct"].round(2)
 
 # Create forest plot
+# Prepare data for forest plot with clean category labels
+def clean_parameter_name(param_name, baseline_inpaint_config=None):
+    """Convert parameter names to clean display names with baseline reference"""
+    name_map = {
+        'ddpm_name': 'DDPM (ref: U500c)',
+        'unet_name': 'U-Net (ref: Rx124)',
+        'dataset_name': 'Dataset (ref: 30S70M)', 
+        'transform_name': 'Transform (ref: Sqrt)',
+        'enrich_name': 'Enrichment (ref: No)',
+        'inpaint_config': f'Inpaint Config (ref: {baseline_inpaint_config or "noTTJ5"})'
+    }
+    return name_map.get(param_name, param_name)
+
+def create_elegant_forest_plot(data, title="", figsize=(12, 8)):
+    """
+    Create an elegant forest plot for parameter effects.
+    
+    Parameters:
+    -----------
+    data : DataFrame with columns estimate, lower, upper, label, category
+    title : str, plot title
+    figsize : tuple, figure size
+    
+    Returns:
+    --------
+    matplotlib axes object
+    """
+    # Create the plot
+    ax = fp.forestplot(
+        data,
+        estimate='estimate',
+        ll='lower', 
+        hl='upper',
+        varlabel='label',
+        annote=['estimate'],
+        annoteheaders=['Effect (%)'],
+        groupvar='category',
+        xlabel='Improvement over Baseline (%)',
+        figsize=figsize,
+        flush=True,
+        color_alt_rows=True,
+        decimal_precision=2,
+        xline=0,  # Reference line at 0
+        xlinestyle='--',
+        xlinecolor='red',
+        **{'fontfamily': 'sans-serif'}
+    )
+    
+    if title:
+        plt.title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+    return ax
+
 # Prepare data for forest plot
 forest_data = []
 for _, row in param_effects.iterrows():
     forest_data.append({
-        'label': f"{row['parameter']} = {row['value']}",
-        'estimate': row['improvement_pct'],
-        'lower': row['improvement_pct'] - 1,  # Simple confidence interval
-        'upper': row['improvement_pct'] + 1,
-        'category': row['parameter']
+        'label': f"{clean_parameter_name(row['parameter'], baseline_inpaint_config)} = {row['value']}",
+        'estimate': row['wis_improvement_pct'],
+        'lower': row['wis_improvement_pct'],  # Simple confidence interval
+        'upper': row['wis_improvement_pct'],
+        'category': clean_parameter_name(row['parameter'], baseline_inpaint_config)
     })
+
+
 
 forest_df = pd.DataFrame(forest_data)
 
-# Create forest plot
-fig = fp.forestplot(
-    forest_df,
-    estimate='estimate',
-    varlabel='label',
-    xlabel='Improvement over Baseline (%)',
-    color_alt_rows=True,
-    groupvar='category',
-    figsize=(12, 8),
-    annote=['estimate'],
-    annoteheaders=['Effect (%)'],
-    rightannote=None
-)
-
-plt.axvline(x=0, color='red', linestyle='--', alpha=0.7)
-plt.title(f'Parameter Effects on WIS Performance\n(Baseline: {baseline_model["model"]})', fontsize=14, pad=20)
+# Create elegant forest plot
+ax = create_elegant_forest_plot(forest_df)
 plt.show()
 
 # Print summary table
 print("\nParameter Effects Summary:")
 print("=" * 80)
-param_effects_sorted = param_effects.sort_values('improvement_pct', ascending=False)
+param_effects_sorted = param_effects.sort_values('wis_improvement_pct', ascending=False)
 for _, row in param_effects_sorted.iterrows():
-    print(f"{row['parameter']:>15} = {row['value']:<15} | {row['improvement_pct']:>6.1f}% | WIS: {row['wis']:>8.0f} | N: {row['n_models']}")
+    print(f"{row['parameter']:>15} = {row['value']:<15} | WIS: {row['wis_improvement_pct']:>6.1f}% | RelWIS: {row['rel_wis_improvement_pct']:>6.1f}% | N: {row['n_models']}")
+
+# %%
+
+# %%
+forest_df
 
 # %%
 # Load MLflow loss data and analyze relationship with forecast performance
@@ -277,14 +412,6 @@ plt.tight_layout()
 plt.show()
 
 # %%
-def extract_inpaint_config(model_name):
-    """Extract and clean inpainting config from model name"""
-    match = re.search(r'::inpaint_CoPaint::(\w+)', model_name)
-    if match:
-        config = match.group(1)
-        return config.replace('celebahq_', '')  # Remove prefix
-    return 'unknown'
-
 def prepare_loss_performance_data(df_parsed, filtered_losses):
     """Merge leaderboard performance data with MLflow training losses"""
     # Get Combined season performance metrics
@@ -314,13 +441,13 @@ def prepare_loss_performance_data(df_parsed, filtered_losses):
 loss_performance = prepare_loss_performance_data(df_parsed, filtered_losses)
 
 # Exclude models with relative WIS > 2.0
-excluded_models = loss_performance[loss_performance['relative_wis'] > 2.0]
-loss_performance_filtered = loss_performance[loss_performance['relative_wis'] <= 2.0]
+excluded_models = loss_performance[loss_performance['relative_wis'] > 1.5]
+loss_performance_filtered = loss_performance[loss_performance['relative_wis'] <= 1.5]
 
 print(f"Filtered {len(loss_performance_filtered)} models (excluded {len(excluded_models)} with relative WIS > 2.0)")
 
 # %%
-def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False):
+def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False, ax=None, show_legend=True):
     """Create scatter plot with all model labels"""
     # Separate datasets
     ds_30S70M_mask = data['dataset_name_y'] == '30S70M'
@@ -332,7 +459,13 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False):
                       (data['inpaint_config'] == 'noTTJ5'))
     best_model_data = data[best_model_mask]
     
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # Create figure if ax not provided
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        standalone = True
+    else:
+        fig = ax.figure
+        standalone = False
     
     # Plot datasets
     y_main = main_dataset[y_col] / 1000 if scale_y else main_dataset[y_col]
@@ -359,7 +492,8 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False):
     ax.grid(True, alpha=0.3, linewidth=0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.legend(fontsize=10, frameon=True)
+    if show_legend:
+        ax.legend(fontsize=10, frameon=True)
     
     # Label all models
     for _, row in data.iterrows():
@@ -369,27 +503,35 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False):
             label += " (CHOICE)"
             ax.annotate(label, (row[x_col], y_val), 
                        xytext=(8, 8), textcoords='offset points', 
-                       fontsize=8, alpha=1.0, fontweight='bold', color='red')
+                       fontsize=9, alpha=1.0, fontweight='bold', color='red')
         else:
             ax.annotate(label, (row[x_col], y_val), 
                        xytext=(5, 5), textcoords='offset points', 
-                       fontsize=7, alpha=0.8)
+                       fontsize=9, alpha=0.8)
     
-    plt.tight_layout()
-    plt.show()
+    if standalone:
+        plt.tight_layout()
+        plt.show()
+    
+    return fig, ax
 
-# Create scatter plots
-plot_scatter(loss_performance_filtered, 'final_loss', 'relative_wis', 
-            'Final Training Loss', 'Relative WIS')
+# Create subplot figure with A and B panels
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
-plot_scatter(loss_performance_filtered, 'final_loss', 'wis', 
-            'Final Training Loss', 'WIS (×1000)', scale_y=True)
-
+# Panel A: Average loss vs Relative WIS
 plot_scatter(loss_performance_filtered, 'avg_loss_last_100', 'relative_wis',
-            'Average Loss (Last 100 Steps)', 'Relative WIS')
+            'Average Loss (Last 100 Steps)', 'Relative WIS', ax=ax1, show_legend=False)
 
+# Panel B: Average loss vs WIS  
 plot_scatter(loss_performance_filtered, 'avg_loss_last_100', 'wis',
-            'Average Loss (Last 100 Steps)', 'WIS (×1000)', scale_y=True)
+            'Average Loss (Last 100 Steps)', 'WIS (×1000)', scale_y=True, ax=ax2, show_legend=True)
+
+# Add panel labels
+ax1.text(0.02, 0.98, 'A', transform=ax1.transAxes, fontsize=16, fontweight='bold', va='top')
+ax2.text(0.02, 0.98, 'B', transform=ax2.transAxes, fontsize=16, fontweight='bold', va='top')
+
+plt.tight_layout()
+plt.show()
 
 # Print correlation analysis
 print("\nCorrelation Analysis (filtered data, relative WIS ≤ 2.0):")
