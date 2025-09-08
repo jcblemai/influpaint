@@ -207,11 +207,11 @@ def log_samples_as_artifacts(samples, dataset, scenario_string, model_folder):
     import numpy as np
     import os
     
-    raw_samples_path = os.path.join(model_folder, "raw_samples.npy")
+    raw_samples_path = os.path.join(model_folder, "raw_samples_{scenario_string}.npy")
     np.save(raw_samples_path, samples)
     mlflow.log_artifact(raw_samples_path, "samples")
     # 2. Log inverse-transformed samples (original scale) 
-    inv_samples_path = os.path.join(model_folder, "inverse_transformed_samples.npy")
+    inv_samples_path = os.path.join(model_folder, "inverse_transformed_samples_{scenario_string}.npy")
     inv_samples = []
     for i in range(samples[-1].shape[0]):
         inv_sample = dataset.apply_transform_inv(samples[-1][i])
