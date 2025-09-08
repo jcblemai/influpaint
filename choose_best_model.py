@@ -398,7 +398,7 @@ for scenario_id in filtered_timeseries['scenario_id'].unique():
         ax.plot(scenario_data['step'], scenario_data['loss'], 
                 linewidth=2.5, alpha=0.9, color='k', label=f'{scenario_name} (Chosen Model)')
 
-ax.set_xlabel('Training Step', fontsize=12)
+ax.set_xlabel('Training Epoch', fontsize=12)
 ax.set_ylabel('Training Loss', fontsize=12)
 ax.set_yscale('log')
 ax.grid(True, alpha=0.3, linewidth=0.5)
@@ -467,23 +467,33 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False, ax=None, sho
         fig = ax.figure
         standalone = False
     
-    # Plot datasets
-    y_main = main_dataset[y_col] / 1000 if scale_y else main_dataset[y_col]
-    y_other = other_datasets[y_col] / 1000 if scale_y else other_datasets[y_col]
+    # Add scatter points for different inpainting configs with unique markers
+    config_markers = {
+        'noTTJ5': 'D',      # Large cross
+        'try3': 'o ',        # Plus
+        'celebahq': 'X'     # Diamond
+    }
     
-    ax.scatter(main_dataset[x_col], y_main, 
-              alpha=0.6, color='steelblue', s=50, label='30S70M dataset', 
-              edgecolors='white', linewidth=0.5)
-    ax.scatter(other_datasets[x_col], y_other, 
-              alpha=0.6, color='lightcoral', s=50, label='Other datasets', 
-              edgecolors='white', linewidth=0.5)
-    
-    # Highlight best model
-    if not best_model_data.empty:
-        y_best = best_model_data[y_col] / 1000 if scale_y else best_model_data[y_col]
-        ax.scatter(best_model_data[x_col], y_best, 
-                  marker='o', s=120, color='red', label='Best Model (i804_noTTJ5)', 
-                  edgecolors='black', linewidth=3, alpha=0.8)
+    # Plot each config with its specific marker
+    for config, marker in config_markers.items():
+        config_data = data[data['inpaint_config'] == config]
+        if not config_data.empty:
+            # Separate by dataset for consistent coloring
+            config_main = config_data[config_data['dataset_name_y'] == '30S70M']
+            config_other = config_data[config_data['dataset_name_y'] != '30S70M']
+            
+
+            y_config_main = config_main[y_col] / 1000 if scale_y else config_main[y_col]
+            ax.scatter(config_main[x_col], y_config_main, 
+                        marker=marker, s=80, color='steelblue', alpha=0.8,
+                        #edgecolors='black', linewidth=1, 
+                        label=f'{config} (30S70M)' if show_legend else None)
+            
+            y_config_other = config_other[y_col] / 1000 if scale_y else config_other[y_col]
+            ax.scatter(config_other[x_col], y_config_other, 
+                        marker=marker, s=80, color='lightcoral', alpha=0.8,
+                        #edgecolors='black', linewidth=1,
+                        label=f'{config} (Other)' if show_legend else None)
     
     # Styling
     ax.set_xlabel(xlabel, fontsize=12)
@@ -494,7 +504,7 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False, ax=None, sho
     ax.spines['right'].set_visible(False)
     if show_legend:
         ax.legend(fontsize=10, frameon=True)
-    
+
     # Label all models
     for _, row in data.iterrows():
         y_val = row[y_col] / 1000 if scale_y else row[y_col]
