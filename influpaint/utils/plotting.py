@@ -824,3 +824,104 @@ def plot_few_sample(samples, dataset,
     
     return fig
 
+
+def plot_unconditional_us_map(inv_samples: np.ndarray, season_axis, sample_idx=None,
+                              multi_line=True, sharey=False, past_ground_truth=True):
+    """
+    Convenience wrapper to plot unconditional inverse-transformed samples on US grid.
+
+    Parameters
+    - inv_samples: numpy array of shape (sample, feature, season_week, place)
+                   or (sample, 1, 64, 64) where last two dims are (week, place)
+    - season_axis: SeasonAxis instance
+    - sample_idx: list or range of sample indices to plot
+    - multi_line, sharey, past_ground_truth: forwarded to plot_us_grid
+    """
+    # Normalize to expected shape and xarray
+    if inv_samples.ndim == 4:
+        arr = inv_samples
+    elif inv_samples.ndim == 3:
+        # add feature dim
+        arr = inv_samples[:, None, :, :]
+    else:
+        raise ValueError("inv_samples must be (sample, feature, week, place) or (sample, week, place)")
+
+    xarr = season_axis.add_axis_to_numpy_array(np.array(arr), truncate=True)
+    fig, ax = plot_us_grid(
+        data=xarr,
+        season_axis=season_axis,
+        sample_idx=sample_idx,
+        multi_line=multi_line,
+        sharey=sharey,
+        past_ground_truth=past_ground_truth,
+    )
+    return fig, ax
+
+
+def fig_unconditional_trajectories_and_mean_heatmap(inv_samples: np.ndarray, season_axis,
+                                                    n_samples: int = 12, save_path: str = None,
+                                                    title: str = None):
+    """
+    Build a two-panel figure: left shows several national trajectories sampled
+    from unconditional generations; right shows the mean heatmap across samples
+    (weeks x locations).
+
+    inv_samples shape: (sample, 1, season_week, place) or (sample, season_week, place)
+    """
+    # Ensure shape (N, 1, W, P)
+    if inv_samples.ndim == 4:
+        arr = inv_samples
+    elif inv_samples.ndim == 3:
+        arr = inv_samples[:, None, :, :]
+    else:
+        raise ValueError("inv_samples must be (sample, feature, week, place) or (sample, week, place)")
+
+    n, c, w, p = arr.shape
+    real_weeks = min(53, w)
+    weeks = np.arange(1, real_weeks + 1)
+
+    # Choose sample indices
+    idx = np.arange(n)
+    if n_samples < n:
+        rng = np.random.default_rng(0)
+        idx = rng.choice(idx, size=n_samples, replace=False)
+
+    # Compute national sums for selected samples
+    nat = arr[idx, 0, :real_weeks, :len(season_axis.locations)].sum(axis=-1)
+
+    # Compute mean heatmap across all samples
+    mean_heat = arr[:, 0, :real_weeks, :len(season_axis.locations)].mean(axis=0)
+
+    # Figure
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=200)
+
+    # Left: trajectories
+    colors = sns.color_palette("husl", n_colors=len(idx))
+    for i, s in enumerate(idx):
+        axes[0].plot(weeks, nat[i], color=colors[i], alpha=0.7, lw=1.5)
+    axes[0].set_title("Unconditional national trajectories")
+    axes[0].set_xlabel("Epiweek")
+    axes[0].set_ylabel("Incidence")
+    axes[0].set_xlim(1, real_weeks)
+    axes[0].set_ylim(bottom=0)
+    axes[0].grid(True, alpha=0.3)
+
+    # Right: mean heatmap
+    im = axes[1].imshow(mean_heat, aspect='auto', cmap='Reds', origin='upper',
+                        interpolation='nearest')
+    axes[1].set_title("Mean incidence heatmap (samples avg)")
+    axes[1].set_xlabel("Location index")
+    axes[1].set_ylabel("Epiweek")
+    axes[1].set_xticks([0, 12, 25, 38, len(season_axis.locations)-1])
+    axes[1].set_xticklabels(['1', '13', '26', '39', str(len(season_axis.locations))])
+    axes[1].set_yticks([0, 13, 26, real_weeks-1])
+    axes[1].set_yticklabels(['1', '14', '27', str(real_weeks)])
+    plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04, label='Incidence')
+
+    if title:
+        fig.suptitle(title, fontsize=12)
+        plt.subplots_adjust(top=0.88)
+    fig.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    return fig, axes
