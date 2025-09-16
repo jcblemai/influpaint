@@ -41,7 +41,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EXPERIMENT_NAME = "paper-2025-07-22_training"
 SCENARIO_ID = 868
 # Season toggle - set to desired flu season year
-SEASON_YEAR = "2024"  # Change this to switch seasons
 
 
 print(f"Running mask experiments for scenario {SCENARIO_ID}")
@@ -111,7 +110,7 @@ conf = available_configs[CONFIG_NAME]
 print(f"Using CoPaint config: {CONFIG_NAME}")
 
 # %%
-# Mask generation functions. 1 = mask out, 0 = keep
+# Mask generation functions. Convention: 1 = keep (observed), 0 = mask (missing)
 
 def mask_dates(mask, dates, season_setup):
     """
@@ -164,6 +163,58 @@ def mask_subpop(mask, location_codes, season_setup):
     return new_mask
 
 
+def mask_dates_for_subpop(mask, dates, season_setup, location_codes):
+    """
+    Mask specific date ranges only for a subset of locations.
+
+    dates: list of single dates or (start, end) tuples (str or datetime)
+    location_codes: list of location codes to apply masking to
+    """
+    new_mask = mask.copy()
+    loc_indices = []
+    for lc in location_codes:
+        assert lc in season_setup.locations, f"Location {lc} not found in season_setup.locations"
+        loc_indices.append(season_setup.locations.index(lc))
+    for date_item in dates:
+        if isinstance(date_item, tuple):
+            start_date, end_date = date_item
+            if isinstance(start_date, str):
+                start_date = pd.to_datetime(start_date)
+            if isinstance(end_date, str):
+                end_date = pd.to_datetime(end_date)
+            start_week = season_setup.get_season_week(start_date)
+            end_week = season_setup.get_season_week(end_date)
+            for li in loc_indices:
+                new_mask[:, start_week-1:end_week, li] = 0
+        else:
+            if isinstance(date_item, str):
+                date_item = pd.to_datetime(date_item)
+            week = season_setup.get_season_week(date_item)
+            for li in loc_indices:
+                new_mask[:, week-1, li] = 0
+    return new_mask
+
+
+def get_season_end_date(season_setup: SeasonAxis, season_first_year: str) -> pd.Timestamp:
+    """Return the last Saturday date of the flu season as Timestamp."""
+    y = int(season_first_year)
+    cal = season_setup.get_season_calendar(y)
+    return pd.to_datetime(cal['saturday'].iloc[-1])
+
+def get_season_start_date(season_setup: SeasonAxis, season_first_year: str) -> pd.Timestamp:
+    y = int(season_first_year)
+    cal = season_setup.get_season_calendar(y)
+    return pd.to_datetime(cal['saturday'].iloc[0])
+
+def get_season_mid_date(season_setup: SeasonAxis, season_first_year: str) -> pd.Timestamp:
+    """Approximate mid-season Saturday by index midpoint of season calendar."""
+    y = int(season_first_year)
+    cal = season_setup.get_season_calendar(y)
+    sats = pd.to_datetime(cal['saturday'])
+    mid_idx = max(0, (len(sats) // 2) - 1)
+    return sats.iloc[mid_idx]
+
+
 
 # %%
 # Setup ground truth for the forecast date
@@ -193,8 +244,16 @@ for season_first_year in ["2023", "2024"]:
     masks['missing_midseason'] = gt_keep_mask
 
     gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-    gt_keep_mask = mask_dates(gt_keep_mask, [("{int(season_first_year)+1}-02-01", "{int(season_first_year)+1}-02-15")], gt1.season_setup)
+    gt_keep_mask = mask_dates(gt_keep_mask, [(f"{int(season_first_year)+1}-02-01", f"{int(season_first_year)+1}-02-15")], gt1.season_setup)
     masks['missing_midseason_peak'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_dates(gt_keep_mask, [(f"{int(season_first_year)+1}-12-07", f"{int(season_first_year)+1}-02-15")], gt1.season_setup)
+    masks['missing_midseason_biggap'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_dates(gt_keep_mask, [(f"{int(season_first_year)+1}-08-01", f"{int(season_first_year)+1}-01-07")], gt1.season_setup)
+    masks['missing_past'] = gt_keep_mask
 
 
     # location stuff
@@ -212,15 +271,76 @@ for season_first_year in ["2023", "2024"]:
 
     gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
     gt_keep_mask = mask_subpop(gt_keep_mask, ["17"], gt1.season_setup)
-    masks['missing_ca'] = gt_keep_mask
+    masks['missing_il'] = gt_keep_mask
 
     gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-    gt_keep_mask = mask_subpop(gt_keep_mask, ["06", "37", "58", "42", "53"], gt1.season_setup)
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["06", "37", "15", "42", "53"], gt1.season_setup)
     masks['missing_five'] = gt_keep_mask
 
     gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-    gt_keep_mask = mask_subpop(gt_keep_mask, ["13", "49", "18" "36", "24"], gt1.season_setup)
-    masks['missing_five'] = gt_keep_mask
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["13", "49", "18", "36", "24"], gt1.season_setup)
+    masks['missing_five2'] = gt_keep_mask
+
+    # New masks per request
+    # 1) Same as biggap but also mask half of the locations entirely
+    gt_keep_mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    # Apply big gap first
+    gt_keep_mask = mask_dates(gt_keep_mask, [(f"{int(season_first_year)+1}-12-07", f"{int(season_first_year)+1}-02-15")], gt1.season_setup)
+    # Then zero-out half the subpopulation across all weeks
+    half_codes = gt1.season_setup.locations[:len(gt1.season_setup.locations)//2]
+    gt_keep_mask = mask_subpop(gt_keep_mask, half_codes, gt1.season_setup)
+    masks['missing_midseason_biggap_halfpop'] = gt_keep_mask
+
+    # 2) Union of missing_midseason and missing_midseason_peak only (two separate gaps)
+    gt_keep_mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    gt_keep_mask = mask_dates(gt_keep_mask, [
+        (f"{season_first_year}-12-07", f"{int(season_first_year)+1}-01-07"),
+        (f"{int(season_first_year)+1}-02-01", f"{int(season_first_year)+1}-02-15"),
+    ], gt1.season_setup)
+    masks['missing_midseason_doublegap'] = gt_keep_mask
+
+    # 3) Same as missing_five but only after Dec 07 (keep early season until 12-07)
+    gt_keep_mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    five_codes = ["06", "37", "15", "42", "53"]
+    season_end = get_season_end_date(gt1.season_setup, season_first_year)
+    gt_keep_mask = mask_dates_for_subpop(
+        gt_keep_mask,
+        [(f"{season_first_year}-12-07", season_end)],
+        gt1.season_setup,
+        five_codes,
+    )
+    masks['missing_five_after_dec07'] = gt_keep_mask
+
+    # 4) Checkerboard masks across (week x location) grid
+    #    Alternate masked/kept blocks with block sizes (weeks_block x loc_block)
+    def _checkerboard_mask(weeks_block: int, loc_block: int):
+        m = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE), dtype=float)
+        # Apply only over real locations columns to be safe
+        P = len(gt1.season_setup.locations)
+        for w in range(IMAGE_SIZE):
+            br = w // max(1, weeks_block)
+            for li in range(P):
+                bc = li // max(1, loc_block)
+                if (br + bc) % 2 == 0:
+                    m[:, w, li] = 0
+        return m
+
+    masks['missing_checkerboard_4x4'] = _checkerboard_mask(4, 4)
+    masks['missing_checkerboard_2x2'] = _checkerboard_mask(2, 2)
+
+    # 5) First-half-of-season missing for selected states (test early-data dependence)
+    #    Default: use the same five codes as in 'missing_five'
+    gt_keep_mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    selected_codes = ["06", "37", "58", "42", "53"]
+    season_start = get_season_start_date(gt1.season_setup, season_first_year)
+    season_mid = get_season_mid_date(gt1.season_setup, season_first_year)
+    gt_keep_mask = mask_dates_for_subpop(
+        gt_keep_mask,
+        [(season_start, season_mid)],
+        gt1.season_setup,
+        selected_codes,
+    )
+    masks['missing_first_half_selected'] = gt_keep_mask
     
 
     for i, (name, mask) in enumerate(masks.items()):
