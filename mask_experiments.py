@@ -331,7 +331,7 @@ for season_first_year in ["2023", "2024"]:
     # 5) First-half-of-season missing for selected states (test early-data dependence)
     #    Default: use the same five codes as in 'missing_five'
     gt_keep_mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
-    selected_codes = ["06", "37", "58", "42", "53"]
+    selected_codes = ["06", "37", "15", "42", "53"]
     season_start = get_season_start_date(gt1.season_setup, season_first_year)
     season_mid = get_season_mid_date(gt1.season_setup, season_first_year)
     gt_keep_mask = mask_dates_for_subpop(
