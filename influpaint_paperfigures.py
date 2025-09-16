@@ -26,13 +26,20 @@ from influpaint.utils import ground_truth
 IMAGE_SIZE = 64
 CHANNELS = 1
 
-BEST_MODEL_ID = "i804"
+BEST_MODEL_ID = "i868"
 BEST_CONFIG = "celebahq_noTTJ5"
 
-UNCOND_SAMPLES_PATH = (
-    "from_longleaf/regen/samples_regen/"
-    "inverse_transformed_samples_i804::m_U500cRx124::ds_30S70M::tr_Sqrt::ri_No.npy"
-)
+def find_uncond_samples_path(model_id: str, base_dir: str = "from_longleaf/regen/samples_regen/") -> str:
+    import glob
+    pattern = os.path.join(base_dir, f"inverse_transformed_samples_{model_id}*.npy")
+    matches = glob.glob(pattern)
+    if not matches:
+        raise FileNotFoundError(f"No inverse transformed samples found for model {model_id}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple samples found for model {model_id}: {matches}")
+    return matches[0]
+
+UNCOND_SAMPLES_PATH = find_uncond_samples_path(BEST_MODEL_ID)
 
 INPAINTING_BASE = (
     "from_longleaf/influpaint_res/07b44fa_paper-2025-07-22_inpainting_2025-07-27"
@@ -726,7 +733,7 @@ def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str, s
     return outs
 
 
-MASK_RESULTS_DIR = "from_longleaf/mask_experiments"
+MASK_RESULTS_DIR = "from_longleaf/mask_experiments_868_celebahq_noTTJ5/"
 MASK_SEASON_YEAR = "2024"
 MASK_FORECAST_DATE = "2025-05-14"
 
