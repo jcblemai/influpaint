@@ -5,6 +5,6 @@
 #SBATCH -t 10:00:00
 #SBATCH --gres=gpu:1
 #SBATCH -p jlessler
-#SBATCH --nodelist="g1803jles01"
+#SBATCH --nodelist="g1803jles02"
 
 /nas/longleaf/home/chadi/.conda/envs/diffusion_torch6/bin/python mask_experiments.py
