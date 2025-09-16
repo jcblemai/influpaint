@@ -1,846 +1,740 @@
-# %%
-%matplotlib inline
-import matplotlib.pyplot as plt
-import seaborn as sns
-from tqdm.auto import tqdm
-import torch
-import epiframework
+"""
+Influpaint paper figures script (notebook-style).
+
+Generates three groups of figures:
+1) Unconditional generation: US grid and trajectories+mean heatmap for i804
+2) Forecasts from CSV (4-week hubverse): overlay quantile fans on ground truth
+3) Forecasts from NPY (full horizon): two-panel figure for two seasons
+4) Mask experiments: ground truth in black and colored trajectories
+"""
+
+import os
+import datetime as dt
 import numpy as np
 import pandas as pd
-import nn_blocks, idplots, ddpm, myutils, inpaint, ground_truth, epitransforms
-import build_dataset, training_datasets
-from torch.utils.data import DataLoader
-from torchvision import transforms
-import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib.dates as mdates
 
-import sys
-sys.path.append('CoPaint4influpaint')
-from guided_diffusion import O_DDIMSampler
-from guided_diffusion import unet
-from utils import config
-
-image_size = 64
-channels = 1
-batch_size=512
-epoch = 800
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(device)
-if device == "cuda":
-    print(myutils.cuda_mem_info())
-    torch.cuda.empty_cache() # make sure we don't keep old stuff
-    print(myutils.cuda_mem_info())
-
-do_inpainting = True
-do_training = False
-
-# %% [markdown]
-# Notebook forked from influpaint.ipynb, and modified to do the paper figures
-# ## Prepare ground-truth for inpainting
-
-# %%
-%ls /users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/*.pth
-
-# %%
-checkpoint_fn = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet500::dataset_R1::trans_Sqrt::enrich_No::800.pth"
-#work with noTT2
-checkpoint_fn = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800.pth"
-
-# %%
-model_str = checkpoint_fn.split('/')[-1]
-for part in model_str.split('::')[1:-1]:
-    print(part)
-    tp, val = part.split('_')
-    if tp == 'model':
-        unet_spec = epiframework.model_libary(image_size=image_size, channels=channels, epoch=epoch, device=device, batch_size=batch_size)
-        ddpm1 = unet_spec[val]
-    elif tp == "dataset":
-        dataset_spec = epiframework.dataset_library(gt1=gt1, channels=channels)
-        dataset = dataset_spec[val]
-    elif tp == "trans":
-        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
-        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
-        transform = transforms_spec[val]
-    elif tp == "enrich":
-        scaling_per_channel = np.array(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])))
-        transforms_spec, transform_enrich = epiframework.transform_library(scaling_per_channel=scaling_per_channel)
-        enrich = transform_enrich[val]
-dataset.add_transform(transform=transform["reg"], transform_inv=transform["inv"], transform_enrich=enrich, bypass_test=False)
-
-# %%
-ddpm1.load_model_checkpoint(checkpoint_fn)
+from influpaint.utils import SeasonAxis
+import influpaint.utils.plotting as idplots
+from influpaint.utils.helpers import flusight_quantile_pairs, flusight_quantiles
+from influpaint.utils import ground_truth
 
 
-# %% [markdown]
-# ## Sampling (inference)
-# 
-# To sample from the model, we can just use our sample function defined above:
-# `samples[-1][:,0,:,:].shape` is (512, 64, 64) which is batchsize, epiweek, locations
+# ==== Constants / Paths (edit as needed) ====
+IMAGE_SIZE = 64
+CHANNELS = 1
 
-# %%
-do_sampling=True
-if do_sampling: 
-    samples = ddpm1.sample()
-    random_index = 0
-    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
-    ax = axes # es.flat[i]
-    idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][random_index]), ax = ax)
-    plt.show()
-    plt.imshow(samples[-1][random_index].reshape(image_size, image_size, channels))
-    plt.show()
+BEST_MODEL_ID = "i804"
+BEST_CONFIG = "celebahq_noTTJ5"
 
-# %%
-
-if do_sampling:
-    fig, axes = plt.subplots(1, 1, figsize=(16,3), dpi=100)
-    ax = axes # es.flat[i]
-    for i in range(batch_size):
-        idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax)
-
-    #ax.set_ylim(0,10000)
-
-# %%
-#plt.hist(samples[-1].flatten(), bins = 100);
-#plt.plot(transform_inv(samples[-1][:,0,:,:].sum(axis=2)).T);
-
-# %%
-if do_sampling:
-    # histogram of peaks. In the US historically it's from 13k to 34k
-    plt.hist(dataset.transform_inv(samples[-1][:,0,:,:].sum(axis=2)).max(axis=1), bins=30)
-print(f"mean peak is {dataset.transform_inv(samples[-1][:,0,:,:].sum(axis=2)).max(axis=1).mean()/1000:.1f}k (US historically it's from 13k to 34k)")
-
-# %%
-# %% [markdown]
-# ## Paper Figures
-
-# %%
-
-
-if do_sampling:
-    # Custom with specific labels for Figure 1
-    indices_custom = [10, 25, 50]
-    labels_custom = ['(a) Curve A', '(b) Curve B', '(c) Curve C']
-    create_figure_2(samples, dataset, indices=indices_custom, season_labels=labels_custom, 
-                   save_path='figures/fig1_unconditional.png')
-
-# %%
-def load_forecast_csv(csv_path):
-    """Load and process forecast CSV file"""
-    import pandas as pd
-    df = pd.read_csv(csv_path)
-    return df
-
-def load_truth_data(truth_path="/users/c/h/chadi/influpaint/Flusight/2022-2023/FluSight-forecast-hub-official/data-truth/truth-Incident Hospitalizations.csv"):
-    """Load ground truth data from FluSight"""
-    import pandas as pd
-    import os
-    if os.path.exists(truth_path):
-        truth_df = pd.read_csv(truth_path)
-        truth_df['date'] = pd.to_datetime(truth_df['date'])
-        return truth_df
-    else:
-        print(f"Truth file not found: {truth_path}")
-        return None
-
-def create_figure_2_forecasting(csv_files, states, save_path=None):
-    """
-    Figure 2: Forecasting case studies showing full flu season with forecasts overlaid
-    • Shows complete 2022-2023 flu season with ground truth
-    • Overlays forecast fans at their respective forecast dates
-    • Demonstrates different forecasting scenarios across the season
-    """
-    import pandas as pd
-    import datetime as dt
-    
-    # Load ground truth data
-    truth_df = load_truth_data()
-    
-    # Set paper-ready style
-    plt.style.use('default')
-    plt.rcParams['font.size'] = 12
-    plt.rcParams['axes.linewidth'] = 0.8
-    
-    # Create single large plot
-    fig, ax = plt.subplots(1, 1, figsize=(16, 10), dpi=300)
-    
-    # Define colors for different forecasts
-    forecast_colors = ['#FF4444', '#4444FF', '#44AA44', '#AA44AA']
-    
-    # Plot full season ground truth first
-    if truth_df is not None:
-        # Use first available state for demonstration
-        state = states[0] if states else '01'
-        state_truth = truth_df[truth_df['location'] == state]
-        
-        if len(state_truth) > 0:
-            # Get full 2022-2023 flu season data
-            season_start = pd.to_datetime('2022-10-01')
-            season_end = pd.to_datetime('2023-05-31')
-            
-            season_truth = state_truth[
-                (state_truth['date'] >= season_start) & 
-                (state_truth['date'] <= season_end)
-            ].sort_values('date')
-            
-            if len(season_truth) > 0:
-                print(f"Ground truth dates: {season_truth['date'].min().date()} to {season_truth['date'].max().date()}")
-                
-                # Plot full season ground truth using actual dates
-                ax.plot(season_truth['date'], season_truth['value'], 
-                       color='black', linewidth=3, marker='o', markersize=4,
-                       label='Observed Ground Truth', markerfacecolor='white', 
-                       markeredgecolor='black', markeredgewidth=1)
-    
-    # Now overlay each forecast at its respective date
-    legend_labels = []
-    for i, (csv_file, state, color) in enumerate(zip(csv_files, states, forecast_colors)):
-        # Load forecast data
-        df = load_forecast_csv(csv_file)
-        print(f"Processing forecast {i+1}: {csv_file.split('/')[-1]}")
-        
-        # Filter for the state
-        state_data = df[df['location'] == state] if 'location' in df.columns else df
-        
-        if len(state_data) == 0:
-            available_states = df['location'].unique()[:5]
-            if len(available_states) > 0:
-                state = available_states[0]
-                state_data = df[df['location'] == state]
-        
-        if len(state_data) == 0:
-            continue
-            
-        # Sort by target_end_date
-        state_data = state_data.sort_values('target_end_date')
-        
-        # Extract forecast date from CSV data (more reliable than filename)
-        if 'forecast_date' in state_data.columns:
-            forecast_date = pd.to_datetime(state_data['forecast_date'].iloc[0])
-            print(f"  Forecast date from CSV: {forecast_date.date()}")
-        else:
-            # Fallback to filename parsing
-            import re
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})\.csv$', csv_file)
-            if not date_match:
-                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', csv_file.split('/')[-1])
-            
-            if not date_match:
-                print(f"  Could not extract date from filename: {csv_file}")
-                continue
-                
-            forecast_date = pd.to_datetime(date_match.group(1))
-            print(f"  Forecast date from filename: {forecast_date.date()}")
-        
-        # Get quantiles
-        available_quantiles = sorted(state_data['quantile'].unique())
-        quantiles = [0.025, 0.1, 0.25, 0.5, 0.75, 0.9, 0.975]
-        quantiles = [q for q in quantiles if q in available_quantiles]
-        
-        # Plot forecast uncertainty bands
-        for q_idx in range(len(quantiles)//2):
-            lower_q = quantiles[q_idx]
-            upper_q = quantiles[-(q_idx+1)]
-            
-            lower_data = state_data[state_data['quantile'] == lower_q].sort_values('target_end_date')
-            upper_data = state_data[state_data['quantile'] == upper_q].sort_values('target_end_date')
-            
-            if len(lower_data) > 0 and len(upper_data) > 0:
-                # Use actual target_end_dates for x-axis
-                forecast_dates = pd.to_datetime(lower_data['target_end_date'])
-                alpha = 0.3 - q_idx * 0.05
-                
-                ax.fill_between(forecast_dates, 
-                              lower_data['value'].values, 
-                              upper_data['value'].values, 
-                              alpha=alpha, color=color, edgecolor='none')
-        
-        # Plot median forecast
-        median_data = state_data[state_data['quantile'] == 0.5].sort_values('target_end_date')
-        if len(median_data) > 0:
-            forecast_dates = pd.to_datetime(median_data['target_end_date'])
-            
-            ax.plot(forecast_dates, median_data['value'], 
-                   color=color, linewidth=3, linestyle='-',
-                   label=f'Forecast {i+1} ({forecast_date.strftime("%b %d")})')
-        
-        # Add vertical line at forecast date
-        ax.axvline(forecast_date, color=color, linestyle='--', alpha=0.7, linewidth=2)
-    
-    # Formatting
-    ax.set_xlabel('Date (2022-2023 Flu Season)', fontsize=14)
-    ax.set_ylabel('Flu Hospitalizations', fontsize=14)
-    ax.set_title('Figure 2: Forecasting Case Studies - Full Season Context\nInfluPaint Inpainting Results', 
-                fontsize=16, fontweight='bold', pad=20)
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)
-    
-    # Format x-axis dates
-    import matplotlib.dates as mdates
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-    
-    # Style
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    
-    # Legend
-    ax.legend(loc='upper right', fontsize=11, frameon=True, fancybox=True, shadow=True)
-    
-    # Final layout
-    plt.tight_layout()
-    plt.subplots_adjust(top=0.90)
-    
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', format='png')
-        pdf_path = save_path.replace('.png', '.pdf')
-        plt.savefig(pdf_path, dpi=300, bbox_inches='tight', facecolor='white', format='pdf')
-
-    plt.show()
-    return fig
-
-# Example usage for Figure 2 - Load forecast CSVs and create case studies
-forecast_base_path = "/users/c/h/chadi/influpaint_res/3d47f4a_2023-11-07/forecasts_noTT/test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2/"
-
-# Select representative dates and states for the four case studies
-case_study_files = [
-    forecast_base_path + "test::model_MyUnet200::dataset_RFv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-11-14.csv",
-    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-10-17.csv", 
-    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2023-02-06.csv",
-    forecast_base_path + "test::model_MyUnet200::dataset_R1Fv::trans_Sqrt::enrich_PoisPadScaleSmall::800::inpaint_CoPaint::conf_celebahq_noTT2-2022-12-12.csv"
-]
-
-# Representative states for each case study (using numeric FIPS codes)
-case_study_states = ["01", "02", "04", "05"]  # Alabama, Alaska, Arizona, Arkansas
-
-# Check if files exist and create the figure
-import os
-existing_files = [f for f in case_study_files if os.path.exists(f)]
-
-if len(existing_files) >= 2:  # Need at least 2 files for meaningful comparison
-    create_figure_2_forecasting(existing_files[:4], case_study_states[:len(existing_files[:4])], 
-                               save_path='figure_2_forecasting.png')
-else:
-    print(f"Found {len(existing_files)} forecast files. Need at least 2 for Figure 2.")
-    print("Available files:")
-    for f in existing_files:
-        print(f"  {f}")
-
-
-
-# %%
-# fig, axes = plt.subplots(8, 7, figsize=(16,16), dpi=100)
-# 
-# for ipl in range(51):
-#     ax = axes.flat[ipl]
-#     for i in range(batch_size):
-#         idplots.show_tensor_image(dataset.apply_transform_inv(samples[-1][i]), ax = ax, place=ipl, multi=True)
-
-# %%
-animate = False
-if animate:
-    import matplotlib.animation as animation
-
-    random_index = 53
-# TODO: the reshape shuffles the information
-    fig = plt.figure()
-    ims = []
-    for i in range(ddpm1.timesteps):
-        im = plt.imshow(samples[i][random_index].reshape(image_size, image_size, channels), animated=True)
-        ims.append([im])
-
-    animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
-    animate.save('diffusion.gif')
-    plt.show()
-if animate:
-    plt.ioff()
-    for ts in tqdm(range(0, ddpm1.timesteps, 5)):
-        fig, axes = plt.subplots(8, 8, figsize=(10,10))
-        for ipl in range(51):
-            ax = axes.flat[ipl]
-            for i in range(0,batch_size, 2):
-                idplots.show_tensor_image(dataset.apply_transform_inv(samples[ts][i]), ax = ax, place=ipl)
-        plt.savefig(f'results/{ts}.png')
-        plt.close(fig)
-
-
-
-# %%
-from importlib import reload
-ground_truth = reload(ground_truth)
-if do_inpainting:
-    if False:       # if True, take a training data sample as gt:
-        inpaintfrom_idx = 19
-        gt_keep_mask = np.ones((channels,image_size,image_size))
-        gt_keep_mask[:,inpaintfrom_idx:,:] = 0
-        # mask is ones for the known pixels, and zero for the ones to be infered
-        gt = data.getitem_nocast(4)
-        print(gt.shape)
-        show_tensor_image(gt, place=ipl)
-        plt.show()
-
-    else:
-        gt1 = ground_truth.GroundTruth(season_first_year="2024", 
-                                    data_date=datetime.datetime.today(),#datetime.datetime(2024, 12, 3),
-                                    mask_date=datetime.datetime.today(),
-                                    channels=channels,
-                                    image_size=image_size
-                                    )
-        gt1.plot_mask()
-        gt1.plot()
-
-# %%
-channels
-
-# %% [markdown]
-# ## Define a PyTorch Dataset + DataLoader
-
-# %%
-#dataset = training_datasets.FluDataset.from_fluview(
-#                                         flusetup=gt1.flusetup,
-#                                         download=False, 
-#                                         #transform=transforms.transform_randomscale
-#                                         )
-dataset = training_datasets.FluDataset.from_SMHR1_fluview(season_setup=gt1.season_setup, download=False)
-#data = training_datasets.FluDataset.from_csp_SMHR1('Flusight/flu-datasets/synthetic/CSP_FluSMHR1_weekly_padded_4scn.nc', channels=channels)
-#dataset = training_datasets.FluDataset.from_synthetic_dataset("synthetic_dataset/sir_dataset_1.nc", channels=channels)
-dataset.test(6)
-
-# %%
-if do_inpainting:
-    scaling_per_channel = np.array(np.sqrt(max(dataset.max_per_feature, gt1.gt_xarr.max(dim=["date", "place"])).data))
-else:
-    scaling_per_channel = np.array(np.sqrt(max(dataset.max_per_feature)))
-scaling_per_channel
-
-# %%
-## define image transformations (e.g. using torchvision)
-
-transform_enrich = transforms.Compose([
-                        transforms.Lambda(lambda t: epitransforms.transform_poisson(t)),
-                        transforms.Lambda(lambda t: epitransforms.transform_random_padintime(t, min_shift = -15, max_shift = 15)),
-                        #transforms.Lambda(lambda t: epitransforms.transform_randomscale(t, min=.1, max=1.9)),
-        ])
-#                         transforms.Lambda(lambda t: epitransforms.transform_skewednoise(t, scale=.4, a=-1.8))
-transform = transforms.Compose([
-                        epitransforms.transform_sqrt,
-                        transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 1/scaling_per_channel)),
-                        transforms.Lambda(lambda t: epitransforms.transform_channelwisescale(t, scale = 2)),
-
-        ])
-
-# TODO: scaling on incident hops scale.
-
-transform_inv = transforms.Compose([
-                    epitransforms.transform_sqrt_inv,
-                    transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 1/scaling_per_channel)),
-                    transforms.Lambda(lambda t: epitransforms.transform_channelwisescale_inv(t, scale = 2)),
-        ][::-1])      # important reverse the sequence
-
-# %%
-dataset.add_transform(transform=transform, transform_inv=transform_inv, transform_enrich=transform_enrich, bypass_test=False)
-
-# %%
-sample = dataset[6]
-print(f"There are {len(dataset)} samples in the dataset, and a single sample has shape {sample.shape}")
-
-# %%
-# Dataset is shuffled, but the last incompleted batch is dropped
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True) 
-batch = next(iter(dataloader))
-print(f"batch shape {batch.shape}")
-
-# %% [markdown]
-# Next, we define a function which we'll apply on-the-fly on the entire dataset. We use the `with_transform` [functionality](https://huggingface.co/docs/datasets/v2.2.1/en/package_reference/main_classes#datasets.Dataset.with_transform) for that. The function just applies some basic image preprocessing: random horizontal flips, rescaling and finally make them have values in the $[-1,1]$ range.
-
-# %%
-fig, axes = plt.subplots(1,3, figsize=(7,2))
-axes.flat[0].hist(dataset.get_sample_raw(4).flatten(), bins=15);
-axes.flat[1].hist(dataset.get_sample_transformed(4).flatten(), bins=15);
-axes.flat[2].hist(dataset.get_sample_transformed_enriched(4).flatten(), bins=15);
-
-# %%
-# fig, axes = plt.subplots(8, 7, figsize=(16,16), dpi=100, sharex=True, sharey=True)
-# for ipl in range(51):
-#     ax = axes.flat[ipl]
-#     for i in range(batch_size):
-#         ax.plot(batch[i][0][:,ipl], lw=0.5)
-
-# %% [markdown]
-# ## Initialize the DDPM class
-
-# %%
-model = nn_blocks.Unet(
-    dim=image_size,
-    channels=channels,
-    dim_mults=(1, 2, 4,),
-    use_convnext=False
+UNCOND_SAMPLES_PATH = (
+    "from_longleaf/regen/samples_regen/"
+    "inverse_transformed_samples_i804::m_U500cRx124::ds_30S70M::tr_Sqrt::ri_No.npy"
 )
 
-ddpm1 = ddpm.DDPM(model=model, 
-                    image_size=image_size, 
-                    channels=channels, 
-                    batch_size=batch_size, 
-                    epochs=epoch, 
-                    timesteps=200,
-                    device=device)
-
-
-# %%
-
-
-# %%
-if do_training:
-    model = unet.UNetModel(
-            image_size=image_size,
-            in_channels=1,
-            out_channels=1,
-            num_res_blocks=3,
-            model_channels=3,
-            attention_resolutions=2,
-        )
-
-# %%
-dataset
-if device == "cuda":
-    print(myutils.cuda_mem_info())
-    torch.cuda.empty_cache() # make sure we don't keep old stuff
-    print(myutils.cuda_mem_info())
-
-# %% [markdown]
-# ## Forward diffusion sample
-
-# %%
-# use seed for reproducability
-#torch.manual_seed(0)
-x_start = next(iter(dataloader))
-print(f"batch shape {batch.shape}")
-
-def plot(imgs, row_title=None, col_title=None, with_histogram=True, plot_size=2, **imshow_kwargs): # with_orig=False,
-    if not isinstance(imgs[0], list):
-        # Make a 2d grid even if there's just 1 row
-        imgs = [imgs]
-
-    
-    mult_rows=1
-    if with_histogram:
-        mult_rows=2
-
-    place = 4
-    color="lightcoral"#'slategray'
-    print(gt1.season_setup.get_location_name(gt1.season_setup.locations[place]))
-    
-    num_rows = len(imgs)*mult_rows
-    num_cols = len(imgs[0]) #+ with_orig
-    fig, axs = plt.subplots(figsize=(plot_size*num_cols,plot_size*num_rows), nrows=num_rows, ncols=num_cols, squeeze=False, dpi=100)
-    for row_idx, row in enumerate(imgs):
-        # row = [transform_inv(a[place,:])] + row if with_orig else row
-        for col_idx, img in enumerate(row):
-            ax = axs[row_idx*mult_rows, col_idx]
-            ax.plot(np.arange(52), transform_inv(np.asarray(img))[0,:52,place], **imshow_kwargs, color=color, lw=3, marker='.', markersize=5, markerfacecolor='black', markeredgecolor='black')
-            ax.set_xticks(np.arange(0,53,13))
-            sns.despine(ax = ax,  offset = 10, trim = True)
-            if col_idx>0:
-                ax.set(yticklabels=[], yticks=[])
-                sns.despine(ax = ax,  offset = 10, left=True, trim = True)
-
-            
-            #ax.set_ylim(0)
-            #ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
-            if with_histogram:
-                ax = axs[row_idx*mult_rows+1, col_idx]
-                ax.hist(np.asarray(img).flatten(), bins=20, color='slategray', alpha=0.7, lw=1, edgecolor='k', histtype='stepfilled')
-                ax.set_xticks([-1,0,1])
-                ax.set(yticklabels=[], yticks=[])
-                sns.despine(ax = ax,  offset = 4, left=True, trim = True)
-            
-
-    #if with_orig:
-    #    axs[0, 0].set(title='Original')
-    #    axs[0, 0].title.set_size(8)
-    if row_title is not None:
-        for row_idx in range(num_rows):
-            axs[row_idx, 0].set(ylabel=row_title[row_idx])
-    if col_title is not None:
-        for col_idx in range(num_cols):
-            axs[0, col_idx].set(title=col_title[col_idx])
-            axs[0, col_idx].title.set_size(16)
-
-    plt.tight_layout()
-
-#diffused_curves = [[q_sample(x_start[7,:], torch.tensor([t])) for t in [0, 50, 100, 150, 199]] ,
-#                   [q_sample(x_start[9,:], torch.tensor([t])) for t in [0, 50, 100, 150, 199]]]#
-#plot(diffused_curves, with_histogram=True)
-
-def plot_foward_diffusion(x_start, ts, with_histogram=True, plot_size=2, **imshow_kwargs):
-    if not isinstance(x_start, list):
-        # Make a 2d grid even if there's just 1 row
-        x_start = [x_start]
-    diffused_curves = [[x] + [ddpm1.q_sample(x, torch.tensor([t])) for t in ts] for x in x_start]
-    col_title = ['t = 0 (original)'] + [f't = {t}/{ddpm1.timesteps-1}' for t in ts]
-
-    plot(diffused_curves, with_histogram=with_histogram, plot_size=plot_size, col_title=col_title, **imshow_kwargs)
-
-
-plot_foward_diffusion([x_start[0,:]], ts=[3,8, 50, 100, 150, 199], with_histogram=True, plot_size= 2.5)
-
-# %% [markdown]
-# This means that we can now define the loss function given the model as follows:
-
-# %% [markdown]
-# ## Train the model
-# 
-
-# %%
-if False:
-    ddpm1.train(dataloader=dataloader)
-
-
-
-# %%
-if False:
-    ddpm1.write_train_checkpoint()
-
-
-# %% [markdown]
-# ## Inpainting (general)
-
-# %%
-gt = dataset.apply_transform(np.nan_to_num(gt1.gt_xarr.data, nan=0.0)) # data.apply_transform TODO: This is bad
-gt_keep_mask = torch.from_numpy(gt1.gt_keep_mask).type(torch.FloatTensor).to(device)
-gt = torch.from_numpy(gt).type(torch.FloatTensor).to(device)
-
-# %% [markdown]
-# ## Inpatinting from copaint
-
-# %%
-conf = config.Config(default_config_dict=
-                    {
-                        "respace_interpolate": False,
-                            "ddim": {
-                                "ddim_sigma": 0.0,
-                                "schedule_params": {
-                                    "ddpm_num_steps": 200,
-                                    "jump_length": 10,
-                                    "jump_n_sample": 2,
-                                    "num_inference_steps": 200,
-                                    "schedule_type": "linear",
-                                    "time_travel_filter_type": "none",
-                                    "use_timetravel": True
-                                }
-                            },
-                            "optimize_xt": {
-                                "coef_xt_reg": 0.0001,
-                                "coef_xt_reg_decay": 1.01,
-                                "filter_xT": False,
-                                "lr_xt": 0.02,
-                                "lr_xt_decay": 1.012,
-                                "mid_interval_num": 1,
-                                "num_iteration_optimize_xt": 2,
-                                "optimize_before_time_travel": True,
-                                "optimize_xt": True,
-                                "use_adaptive_lr_xt": True,
-                                "use_smart_lr_xt_decay": True
-                            
-                            },
-                        "debug":False
-                    },  use_argparse=False)
-
-conf = epiframework.copaint_config_library(timesteps=ddpm1.timesteps)["celebahq_noTT"]
-sampler = O_DDIMSampler(use_timesteps=np.arange(ddpm1.timesteps), 
-                conf=conf,
-                betas=ddpm1.betas, 
-                model_mean_type=None,
-                model_var_type=None,
-                loss_type=None)
-
-
-# %%
-a = sampler.p_sample_loop(model_fn=ddpm1.model, 
-                     shape=(batch_size, channels, image_size, image_size),
-                     conf=conf,
-                     model_kwargs={"gt": gt.repeat(batch_size, 1, 1, 1),
-                                    "gt_keep_mask":gt_keep_mask.repeat(batch_size, 1, 1, 1),
-                                    "mymodel":True, 
-                                }
-                     )
-fluforecasts = np.array(a['sample'].cpu())
-
-# %% [markdown]
-# ## Let's add repainting from the RePaint paper
-# 
-# Dimensions are chanel, time, place
-
-# %%
-#   inpaint1 = inpaint.REpaint(ddpm=ddpm1, gt=gt, gt_keep_mask=gt_keep_mask, resampling_steps=2)
-#   n_samples = batch_size
-#   all_samples = []
-#   for i in range(max(n_samples//batch_size,1)):
-#       samples = inpaint1.sample_paint()
-#       all_samples.append(samples)
-#   
-#   fluforecasts = -1*np.ones((batch_size*max(n_samples//batch_size,1), 1, 64, 64))
-#   for i in range(max(n_samples//batch_size,1)):
-#       fluforecasts[i*batch_size:i*batch_size+batch_size] = all_samples[i][-1]
-
-# %% [markdown]
-# ## plot inpainted forecasts
-
-# %%
-#fluforecasts = np.load("/Users/chadi/Research/influpaint/2023-11-18_UNC_IDD-InfluPaint_forecast.npy")
-
-# %%
-fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
-
-
-# compute the national quantiles, important as sum of quantiles >> quantiles of sum
-forecasts_national = fluforecasts_ti.sum(axis=-1)
-forecasts_national.shape
-
-# %%
-# fig, axes = plt.subplots(1, 1, figsize=(5,3), dpi=200)
-# 
-# ax = axes
-# for i in range(batch_size)[::2]:
-#     ax.plot(gt1.gt_xarr.data[0,:gt1.inpaintfrom_idx].sum(axis=1), color='k', marker='.', ls='')
-#     ax.plot(dataset.apply_transform_inv(samples[-1][i])[0].sum(axis=1) , lw=.5, marker='.', markersize=1, markerfacecolor='black', markeredgecolor='black', color="lightcoral")
-#     idplots.show_tensor_image(samples[-1][i], ax = ax, multi=True,)
-#     ax.axvline(gt1.inpaintfrom_idx-1,  c='k', lw=1, ls='-.')
-#     ax.set_xlim(0,52)
-#     #ax.set_ylim(bottom=0, auto=True)
-#     #ax.grid(visible = True)
-#     ax.set_title("National")
-#     sns.despine(ax = ax, trim = True, offset=4)
-# fig.tight_layout()
-# plt.show()
-
-# %%
-#fig, axes = plt.subplots(8, 7, figsize=(16,16), dpi=200, sharex=True)
-
-#for ipl in range(51):
-#    ax = axes.flat[ipl]
-#    for i in range(min(50, batch_size)):  # print max 50 sims
-#        ax.plot(gt_xarr.data[0,:inpaintfrom_idx, ipl], color='k')
-#        show_tensor_image(samples[-1][i], ax = ax, place=ipl, multi=True)
-#        ax.axvline(inpaintfrom_idx-1, c='k', lw=.7, ls='-.')
-#        ax.set_xlim(0,52)
-#        ax.set_ylim(bottom=0, auto=True)
-#        ax.grid()
-#        #ax.set_title(get_state_name(places[ipl]))
-#fig.tight_layout()
-##plt.savefig("inpainting.pdf")
-
-# %%
-plt.plot(gt1.gt_xarr.data[0,:gt1.inpaintfrom_idx].sum(axis=-1))
-
-# %%
-
-
-# %%
-fig, axes = plt.subplots(1, 2, figsize=(12,4), dpi=100)
-
-for iax in range(2):
-  ax = axes[iax]
-  for iqt in range(11):
-      #print(flusight_quantile_pairs[iqt,0], flusight_quantile_pairs[iqt,1])
-      ax.fill_between(np.arange(64), 
-                      np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,0], axis=0)[0], 
-                      np.quantile(forecasts_national, myutils.flusight_quantile_pairs[iqt,1], axis=0)[0], alpha=.1, color='darkred')
-      
-  ax.plot(np.arange(64), 
-          np.quantile(forecasts_national, myutils.flusight_quantiles[12], axis=0)[0], color='r')
-  #ax.plot(np.arange(64), fluforecasts_ti[:,0].sum(axis=-1).T,lw=0.1, alpha=.1,  color='k')
-  ax.plot(gt1.gt_xarr.data[0,:gt1.inpaintfrom_idx].sum(axis=1), color='k', marker='.', ls='')
-  ax.axvline(gt1.inpaintfrom_idx-1, c='k')
-  if iax==0:
-    ax.set_xlim(0,52)
-    ax.set_ylim(bottom=0, auto=True)
-  if iax==1:
-    ax.set_xlim(gt1.inpaintfrom_idx-4,gt1.inpaintfrom_idx+4)
-    ax.set_ylim(bottom=0, top=1500)
-  
-  ax.grid(visible = True)
-  ax.set_title("National")
-fig.tight_layout()
-plt.show()
-
-# %%
-
-
-# %%
-import datetime
-
-# Get today's date
-today = datetime.datetime.today()
-
-# Find the next Saturday
-days_until_saturday = (5 - today.weekday()) % 7
-next_saturday = today + datetime.timedelta(days=days_until_saturday)
-
-print("Next Saturday's date is:", next_saturday.strftime("%Y-%m-%d"))
-forecast_date = next_saturday.date()
-team_abbrv = "UNC_IDD-InfluPaint"
-forecast_date_str=str(forecast_date)
-
-# %%
-%rm -r output
-%mkdir output
-
-# %%
-gt1.gt_df_final
-
-# %%
-gt1.gt_df_final
-
-
-
-
-# %%
-import importlib
-ground_truth = importlib.reload(ground_truth)
-gt1 = ground_truth.GroundTruth(season_first_year="2024", 
-                            data_date=datetime.datetime.today(),#datetime.datetime(2024, 12, 3),
-                            mask_date=datetime.datetime.today(),
-                            channels=channels,
-                            image_size=image_size
-                            )
-
-# %%
-gt1.export_forecasts(fluforecasts_ti=fluforecasts_ti,
-                        forecasts_national=forecasts_national,
-                        directory="output",#f'output_{forecast_date_str}',
-                        prefix=team_abbrv,
-                        forecast_date=forecast_date,
-                        save_plot=True)
-
-# %%
-# from importlib import reload
-# ground_truth = reload(ground_truth)
-# gt1 = ground_truth.GroundTruth(season_first_year="2023", 
-#                                data_date=datetime.datetime.today(), #datetime.datetime(2023,10,25)
-#                                mask_date=datetime.datetime.today(),
-#                                channels=channels,
-#                                image_size=image_size
-#                                )
-
-# %%
-gt1.export_forecasts_2023(fluforecasts_ti=fluforecasts_ti,
-                        forecasts_national=forecasts_national,
-                        directory='output',
-                        prefix=team_abbrv,
-                        forecast_date=forecast_date,
-                        save_plot=True)
-
-# %% [markdown]
-# ## Data Export
-
-# %%
-import requests
-requests.post("https://ntfy.sh/chadi_modeling",
-     data="Notebook finshed running !",
-     headers={
-         "Title": "Inpainting-diffusion",
-         "Priority": "urgent",
-         "Tags": "warning,tada"
-     })
-
-
+INPAINTING_BASE = (
+    "from_longleaf/influpaint_res/07b44fa_paper-2025-07-22_inpainting_2025-07-27"
+)
+
+FIG_DIR = "figures"
+os.makedirs(FIG_DIR, exist_ok=True)
+_MODEL_NUM = BEST_MODEL_ID.lstrip('i') if isinstance(BEST_MODEL_ID, str) else str(BEST_MODEL_ID)
+
+# Fixed x-limits per season for publication-friendly alignment
+SEASON_XLIMS = {
+    '2023-2024': (dt.datetime(2023, 10, 7), dt.datetime(2024, 6, 1)),
+    '2024-2025': (dt.datetime(2024, 11, 16), dt.datetime(2025, 5, 31)),
+}
+
+# Toggle: also show pre-forecast ("past") segments of NPY forecasts
+SHOW_NPY_PAST = True
+
+
+def forecast_week_saturdays(season: str, season_axis: SeasonAxis, max_weeks: int) -> pd.DatetimeIndex:
+    """Return Saturday dates for forecast weeks for a given season string 'YYYY-YYYY'.
+
+    Uses SeasonAxis.get_season_calendar under the hood.
+    """
+    season_year = int(str(season).split('-')[0])
+    cal = season_axis.get_season_calendar(season_year)
+    saturdays = pd.to_datetime(cal['saturday'])
+    eff_len = min(max_weeks, len(saturdays))
+    return saturdays[:eff_len]
+
+
+def _format_date_axis(ax):
+    """Apply YYYY-MM date format and tilt labels to avoid overlap."""
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    for label in ax.get_xticklabels():
+        label.set_rotation(30)
+        label.set_horizontalalignment('right')
+
+
+# ==== Helpers ====
+def load_unconditional_samples(path: str) -> np.ndarray:
+    x = np.load(path)
+    if x.ndim == 3:
+        x = x[:, None, :, :]
+    return x
+
+
+def list_influpaint_csvs(base_dir: str, model_id: str, config: str):
+    out = []
+    for root, _, files in os.walk(base_dir):
+        if model_id in root and f"conf_{config}" in root:
+            for f in files:
+                if f.endswith(".csv") and not f.endswith("-copaint.csv"):
+                    out.append(os.path.join(root, f))
+    return sorted(out)
+
+
+def parse_date_from_folder(folder_name: str):
+    try:
+        d = folder_name.split("::")[-1]
+        return pd.to_datetime(d).date()
+    except Exception:
+        return None
+
+
+def list_inpainting_dirs(base_dir: str, model_id: str, config: str):
+    out = []
+    for d in os.listdir(base_dir):
+        p = os.path.join(base_dir, d)
+        if not os.path.isdir(p):
+            continue
+        if (d.startswith(model_id) and f"conf_{config}" in d):
+            if os.path.exists(os.path.join(p, "fluforecasts_ti.npy")):
+                out.append(p)
+    return sorted(out)
+
+
+# ==== 1) Unconditional Figures ====
+season_setup = SeasonAxis.for_flusight(remove_us=True, remove_territories=True)
+uncond = load_unconditional_samples(UNCOND_SAMPLES_PATH)
+
+# US grid of several samples (like in batch/training.py)
+fig, _ = idplots.plot_unconditional_us_map(
+    inv_samples=uncond,
+    season_axis=season_setup,
+    sample_idx=list(np.arange(0, min(100, uncond.shape[0]), step=5)),
+    multi_line=True,
+    sharey=False,
+    past_ground_truth=True,
+)
+plt.savefig(os.path.join(FIG_DIR, "unconditional_us_grid.png"), dpi=300, bbox_inches='tight')
+plt.close(fig)
+
+# Trajectories + mean heatmap
+fig, _ = idplots.fig_unconditional_trajectories_and_mean_heatmap(
+    inv_samples=uncond,
+    season_axis=season_setup,
+    n_samples=12,
+    save_path=os.path.join(FIG_DIR, "unconditional_trajs_and_mean_heatmap.png"),
+    title="Representative unconditional samples (i804)",
+)
+plt.close(fig)
+
+
+# ==== 2) Forecasts from CSVs (4-week hubverse) ====
+def load_truth_for_season(season: str) -> pd.DataFrame:
+    from prepare_dataset_for_scoringutils import ScoringutilsFullEvaluator
+    ev = ScoringutilsFullEvaluator()
+    gt = ev.load_ground_truth(season)
+    gt["date"] = pd.to_datetime(gt["date"])  # ensure datetime
+    return gt
+
+
+def _state_to_code(state: str, season_axis: SeasonAxis) -> str:
+    # Accept 'US', FIPS code like '37', or abbreviation like 'NC'
+    if state.upper() == 'US':
+        return 'US'
+    # If already a known location code
+    if state in set(season_axis.locations_df["location_code"].astype(str)):
+        return str(state)
+    # Try abbreviation
+    m = season_axis.locations_df[season_axis.locations_df['abbreviation'].str.upper() == state.upper()]
+    if not m.empty:
+        return str(m.iloc[0]['location_code'])
+    raise ValueError(f"Unknown state '{state}'")
+
+
+def plot_csv_quantile_fans_for_season(season: str, base_dir: str, model_id: str, config: str,
+                                      pick_every: int = 2, state='US',
+                                      start_date: str = '2023-10-07',
+                                      save_path: str | None = None):
+    states = state if isinstance(state, (list, tuple)) else [state]
+    n = len(states)
+    # Layout: for readability, use 2 rows when many states
+    if n >= 4:
+        nrows = 2
+        ncols = int(np.ceil(n / 2))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(4*ncols, 3.5*nrows), dpi=200, sharey=False)
+        axes_list = axes.flatten()
+    else:
+        fig, axes = plt.subplots(1, n, figsize=(4*n, 3.5), dpi=200, sharey=False)
+        axes_list = axes if isinstance(axes, (list, np.ndarray)) else [axes]
+
+    csvs = list_influpaint_csvs(base_dir, model_id, config)
+    if not csvs:
+        print("No CSV forecasts found.")
+        return None
+    # Load all forecast CSVs once
+    df_list = []
+    for p in csvs:
+        try:
+            dfi = pd.read_csv(p, dtype={"location": str})
+            if "reference_date" in dfi.columns:
+                dfi["ref"] = pd.to_datetime(dfi["reference_date"]).dt.date
+            elif "forecast_date" in dfi.columns:
+                dfi["ref"] = pd.to_datetime(dfi["forecast_date"]).dt.date
+            else:
+                continue
+            dfi["target_end_date"] = pd.to_datetime(dfi["target_end_date"]).dt.date
+            dfi["q"] = pd.to_numeric(dfi.get("output_type_id", dfi.get("quantile")), errors="coerce")
+            dfi["target"] = dfi.get("target", "wk inc flu hosp")
+            df_list.append(dfi)
+        except Exception:
+            continue
+    if not df_list:
+        print("No valid CSV content parsed.")
+        return None
+    df_all = pd.concat(df_list, ignore_index=True)
+
+    # Use fixed left bound if provided for season
+    start_dt = SEASON_XLIMS.get(season, (pd.to_datetime(start_date), None))[0]
+    for i_ax, (ax, st) in enumerate(zip(axes_list, states)):
+        loc_code = _state_to_code(st, season_setup)
+        # Ground truth for state
+        gt = load_truth_for_season(season)
+        gt = gt[gt["location"].astype(str) == loc_code].sort_values('date')
+        gt = gt[gt['date'] >= start_dt]
+        ax.plot(gt['date'], gt['value'], color='black', lw=2)
+
+        # State forecasts
+        df = df_all[(df_all["location"].astype(str) == loc_code) & (df_all["target"] == "wk inc flu hosp") & (df_all["output_type"] == "quantile")]
+        refs = sorted(df["ref"].unique())
+        refs = refs[::max(1, pick_every)]
+        palette = sns.color_palette("Set2", n_colors=len(refs))
+        for j, r in enumerate(refs):
+            sub = df[df["ref"] == r]
+            if sub.empty:
+                continue
+            for lo, hi in flusight_quantile_pairs:
+                low = sub[np.isclose(sub["q"], lo)].sort_values("target_end_date")
+                up = sub[np.isclose(sub["q"], hi)].sort_values("target_end_date")
+                if len(low) and len(up):
+                    x = pd.to_datetime(low["target_end_date"]).values
+                    ax.fill_between(x, low["value"].values, up["value"].values,
+                                    color=palette[j], alpha=0.08, lw=0)
+            med = sub[np.isclose(sub["q"], 0.5)].sort_values("target_end_date")
+            if len(med):
+                x = pd.to_datetime(med["target_end_date"]).values
+                ax.plot(x, med["value"].values, color=palette[j], lw=2)
+                rdt = pd.to_datetime(r)
+                ax.axvline(rdt, color=palette[j], ls='--', lw=1)
+        _add_corner = ax.text(0.02, 0.98, st.upper(), transform=ax.transAxes, va='top', ha='left',
+                               fontsize=11, fontweight='bold',
+                               bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+        ax.set_ylim(bottom=0)
+        if i_ax == 0:
+            ax.set_ylabel('Incident flu hospitalizations')
+        else:
+            ax.set_ylabel('')
+        ax.set_xlabel('Date')
+        ax.grid(True, alpha=0.3)
+        sns.despine(ax=ax, trim=True)
+        _format_date_axis(ax)
+
+    # Apply fixed x-limits if available
+    if season in SEASON_XLIMS:
+        ax.set_xlim(SEASON_XLIMS[season][0], SEASON_XLIMS[season][1])
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    return fig
+
+
+def plot_csv_quantile_fans_multiseasons(seasons: list, base_dir: str, model_id: str, config: str,
+                                        states: list, pick_every: int = 2,
+                                        save_path: str | None = None):
+    """Plot CSV forecast fans over full multi-season ground truth for multiple states.
+
+    - seasons: list like ['2023-2024','2024-2025']
+    - states: list like ['US','NC','CA','NY','TX']
+    - x-limits: fixed from 2023-10-07 to 2025-05-31 for readability
+    """
+    # Build GT across requested seasons
+    gt_all_list = []
+    for s in seasons:
+        g = load_truth_for_season(s)
+        g['date'] = pd.to_datetime(g['date'])
+        gt_all_list.append(g)
+    gt_all = pd.concat(gt_all_list, ignore_index=True)
+
+    # Load all forecast CSVs once
+    csvs = list_influpaint_csvs(base_dir, model_id, config)
+    if not csvs:
+        print("No CSV forecasts found.")
+        return None
+    df_list = []
+    for p in csvs:
+        try:
+            dfi = pd.read_csv(p, dtype={"location": str})
+            if "reference_date" in dfi.columns:
+                dfi["ref"] = pd.to_datetime(dfi["reference_date"]).dt.date
+            elif "forecast_date" in dfi.columns:
+                dfi["ref"] = pd.to_datetime(dfi["forecast_date"]).dt.date
+            else:
+                continue
+            dfi["target_end_date"] = pd.to_datetime(dfi["target_end_date"]).dt.date
+            dfi["q"] = pd.to_numeric(dfi.get("output_type_id", dfi.get("quantile")), errors="coerce")
+            dfi["target"] = dfi.get("target", "wk inc flu hosp")
+            df_list.append(dfi)
+        except Exception:
+            continue
+    if not df_list:
+        print("No valid CSV content parsed.")
+        return None
+    df_all = pd.concat(df_list, ignore_index=True)
+
+    # Layout: two rows for readability when many states
+    n = len(states)
+    if n >= 4:
+        nrows = 2
+        ncols = int(np.ceil(n / 2))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 4.5*nrows), dpi=200, sharey=False)
+        axes_list = axes.flatten()
+    else:
+        fig, axes = plt.subplots(1, n, figsize=(5*n, 4.5), dpi=200, sharey=False)
+        axes_list = axes if isinstance(axes, (list, np.ndarray)) else [axes]
+
+    # Global x-lims spanning both seasons
+    x_left = dt.datetime(2023, 10, 7)
+    x_right = dt.datetime(2025, 5, 31)
+
+    for ax, st in zip(axes_list, states):
+        loc_code = _state_to_code(st, season_setup)
+        # GT
+        if loc_code == 'US':
+            gt_us = gt_all[gt_all['location'].astype(str) == 'US'].sort_values('date')
+            ax.plot(gt_us['date'], gt_us['value'], color='black', lw=2)
+        else:
+            gt_st = gt_all[gt_all['location'].astype(str) == loc_code].sort_values('date')
+            ax.plot(gt_st['date'], gt_st['value'], color='black', lw=2)
+
+        # Forecasts for this state across both seasons
+        df = df_all[(df_all["location"].astype(str) == loc_code) & (df_all["target"] == "wk inc flu hosp") & (df_all["output_type"] == "quantile")]
+        refs = sorted(df["ref"].unique())
+        refs = refs[::max(1, pick_every)]
+        palette = sns.color_palette("Set2", n_colors=len(refs))
+        for i, r in enumerate(refs):
+            sub = df[df["ref"] == r]
+            if sub.empty:
+                continue
+            # quantile bands
+            for lo, hi in flusight_quantile_pairs:
+                low = sub[np.isclose(sub["q"], lo)].sort_values("target_end_date")
+                up = sub[np.isclose(sub["q"], hi)].sort_values("target_end_date")
+                if len(low) and len(up):
+                    x = pd.to_datetime(low["target_end_date"]).values
+                    ax.fill_between(x, low["value"].values, up["value"].values, color=palette[i], alpha=0.08, lw=0)
+            # median
+            med = sub[np.isclose(sub["q"], 0.5)].sort_values("target_end_date")
+            if len(med):
+                x = pd.to_datetime(med["target_end_date"]).values
+                ax.plot(x, med["value"].values, color=palette[i], lw=2)
+                rdt = pd.to_datetime(r)
+                ax.axvline(rdt, color=palette[i], ls='--', lw=1)
+                ax.text(rdt, ax.get_ylim()[1]*0.95, str(r), color=palette[i], rotation=90,
+                        ha='right', va='top', fontsize=8,
+                        bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'))
+
+        # Styling
+        ax.text(0.02, 0.98, st.upper(), transform=ax.transAxes, va='top', ha='left', fontsize=11, fontweight='bold', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+        ax.set_ylim(bottom=0)
+        ax.set_xlim(x_left, x_right)
+        ax.set_xlabel('Date')
+        ax.grid(True, alpha=0.3)
+        sns.despine(ax=ax, trim=True)
+        _format_date_axis(ax)
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    return fig
+
+
+fig = plot_csv_quantile_fans_multiseasons(
+    seasons=["2023-2024", "2024-2025"],
+    base_dir=INPAINTING_BASE,
+    model_id=BEST_MODEL_ID,
+    config=BEST_CONFIG,
+    states=['US','NC','CA','NY','TX','FL'],
+    pick_every=2,
+    save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_csv_fans_states_2023_2025.png"),
+)
+if fig is not None:
+    plt.close(fig)
+
+
+# ==== 3) NPY full-horizon forecasts: two-panel (two seasons) ====
+def plot_npy_multi_date_two_seasons(base_dir: str, model_id: str, config: str,
+                                    seasons=("2023-2024", "2024-2025"),
+                                    per_season_pick=4,
+                                    state=('US',),
+                                    start_date: str = '2023-10-07',
+                                    save_path: str | None = None):
+    states = state if isinstance(state, (list, tuple)) else [state]
+    nrows, ncols = len(seasons), len(states)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4*ncols, 3.5*nrows), dpi=200, sharey=False)
+    # Normalize axes to 2D array shape (nrows, ncols)
+    if nrows == 1 and ncols == 1:
+        axes2 = np.array([[axes]])
+    elif nrows == 1:
+        axes2 = np.array(axes).reshape(1, ncols)
+    elif ncols == 1:
+        axes2 = np.array(axes).reshape(nrows, 1)
+    else:
+        axes2 = np.array(axes)
+    for iax, season in enumerate(seasons):
+        dirs = list_inpainting_dirs(base_dir, model_id, config)
+        dirs_with_dates = []
+        for d in dirs:
+            dd = parse_date_from_folder(os.path.basename(d))
+            if dd is None:
+                continue
+            y = season.split('-')[0]
+            if SeasonAxis.for_flusight(remove_us=True, remove_territories=True).get_fluseason_year(pd.to_datetime(dd)) == int(y):
+                dirs_with_dates.append((dd, d))
+        dirs_with_dates = sorted(dirs_with_dates)[:]
+        if not dirs_with_dates:
+            for icol in range(ncols):
+                axes[iax][icol].text(0.5, 0.5, f"{season}: no forecasts", transform=axes[iax][icol].transAxes, ha='center', va='center')
+                axes[iax][icol].set_axis_off()
+            continue
+        step = max(1, len(dirs_with_dates) // max(1, per_season_pick))
+        picked = dirs_with_dates[::step][:per_season_pick]
+        min_dref = min(d for d,_ in picked)
+        # Fixed bounds per season if configured
+        default_left = pd.to_datetime(start_date)
+        left_bound = SEASON_XLIMS.get(season, (default_left, None))[0]
+        end_year = int(season.split('-')[1])
+        default_right = dt.datetime(end_year, 5, 31)
+        right_bound = SEASON_XLIMS.get(season, (None, default_right))[1] or default_right
+        for icol, st in enumerate(states):
+            ax = axes2[iax, icol]
+            loc_code = _state_to_code(st, season_setup)
+            # GT
+            gt_df = load_truth_for_season(season)
+            if loc_code == 'US':
+                # Use national GT directly (do not sum states)
+                gt_us = gt_df[gt_df['location'].astype(str) == 'US'].sort_values('date')
+                gt_us = gt_us[(gt_us['date'] >= left_bound) & (gt_us['date'] <= right_bound)]
+                x_dates = pd.to_datetime(gt_us['date'].values)
+                ax.plot(x_dates, gt_us['value'].values, color='k', lw=2)
+            else:
+                gt = gt_df[gt_df['location'].astype(str) == loc_code].sort_values('date')
+                gt = gt[(gt['date'] >= left_bound) & (gt['date'] <= right_bound)]
+                x_dates = gt['date'].values
+                ax.plot(x_dates, gt['value'], color='k', lw=2)
+            # Forecasts
+            palette = sns.color_palette('Dark2', n_colors=len(picked))
+            for i, (dref, dpath) in enumerate(picked):
+                arr = np.load(os.path.join(dpath, 'fluforecasts_ti.npy'))
+                if loc_code == 'US':
+                    ts = arr[:, 0, :, :len(season_setup.locations)].sum(axis=-1)
+                else:
+                    place_idx = season_setup.locations.index(loc_code)
+                    ts = arr[:, 0, :, place_idx]
+                # Get forecast Saturdays via SeasonAxis mapping
+                x_weeks = forecast_week_saturdays(season, season_setup, ts.shape[1])
+                eff_len = min(len(x_weeks), ts.shape[1])
+                dates_plot = pd.to_datetime(x_weeks[:eff_len])
+                ts = ts[:, :eff_len]
+                for lo, hi in flusight_quantile_pairs:
+                    # Future (from forecast start)
+                    mask_fut = dates_plot >= pd.to_datetime(dref)
+                    x_plot_fut = dates_plot[mask_fut]
+                    if len(x_plot_fut) > 0:
+                        ylo_f = np.quantile(ts, lo, axis=0)[mask_fut]
+                        yhi_f = np.quantile(ts, hi, axis=0)[mask_fut]
+                        ax.fill_between(x_plot_fut, ylo_f, yhi_f, color=palette[i], alpha=0.05, lw=0)
+                    # Past (before forecast start), optional
+                    if SHOW_NPY_PAST:
+                        mask_past = (dates_plot >= left_bound) & (dates_plot < pd.to_datetime(dref))
+                        x_plot_past = dates_plot[mask_past]
+                        if len(x_plot_past) > 0:
+                            ylo_p = np.quantile(ts, lo, axis=0)[mask_past]
+                            yhi_p = np.quantile(ts, hi, axis=0)[mask_past]
+                            ax.fill_between(x_plot_past, ylo_p, yhi_p, color=palette[i], alpha=0.03, lw=0)
+                med_all = np.quantile(ts, 0.5, axis=0)
+                # Future median
+                mask_med_f = dates_plot >= pd.to_datetime(dref)
+                x_plot_med_f = dates_plot[mask_med_f]
+                if len(x_plot_med_f) > 0:
+                    ax.plot(x_plot_med_f, med_all[mask_med_f], color=palette[i], lw=1.6)
+                # Past median (optional)
+                if SHOW_NPY_PAST:
+                    mask_med_p = (dates_plot >= left_bound) & (dates_plot < pd.to_datetime(dref))
+                    x_plot_med_p = dates_plot[mask_med_p]
+                    if len(x_plot_med_p) > 0:
+                        ax.plot(x_plot_med_p, med_all[mask_med_p], color=palette[i], lw=1.0, alpha=0.7, ls=':')
+                rdt = pd.to_datetime(dref)
+                ax.axvline(rdt, color=palette[i], ls='--', lw=1)
+                # annotate forecast date on the dashed line
+                ax.text(rdt, ax.get_ylim()[1]*0.95, str(rdt.date()), color=palette[i], rotation=90,
+                        ha='right', va='top', fontsize=8,
+                        bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'))
+            # Style
+            ax.text(0.02, 0.98, st.upper(), transform=ax.transAxes, va='top', ha='left', fontsize=11, fontweight='bold', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+            ax.set_ylim(bottom=0)
+            ax.grid(True, alpha=0.3)
+            sns.despine(ax=ax, trim=True)
+            if icol == 0:
+                ax.set_ylabel('Incident flu hospitalizations')
+            else:
+                ax.set_ylabel('')
+            ax.set_xlabel('Date')
+            # Use fixed bounds per season
+            ax.set_xlim(left_bound, right_bound)
+            _format_date_axis(ax)
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    return fig
+
+
+fig = plot_npy_multi_date_two_seasons(
+    base_dir=INPAINTING_BASE,
+    model_id=BEST_MODEL_ID,
+    config=BEST_CONFIG,
+    seasons=("2023-2024", "2024-2025"),
+    per_season_pick=4,
+    state=['US','NC','CA','NY','TX'],
+    save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_npy_two_panel_states.png"),
+)
+plt.close(fig)
+
+
+def plot_npy_two_panel_national(base_dir: str, model_id: str, config: str,
+                                seasons=("2023-2024", "2024-2025"),
+                                per_season_pick=4,
+                                start_date: str = '2023-10-07',
+                                save_path: str | None = None):
+    fig, axes = plt.subplots(1, len(seasons), figsize=(14, 5), dpi=200, sharey=False)
+    if len(seasons) == 1:
+        axes = [axes]
+    for iax, season in enumerate(seasons):
+        ax = axes[iax]
+        dirs = list_inpainting_dirs(base_dir, model_id, config)
+        dirs_with_dates = []
+        for d in dirs:
+            dd = parse_date_from_folder(os.path.basename(d))
+            if dd is None:
+                continue
+            y = season.split('-')[0]
+            if SeasonAxis.for_flusight(remove_us=True, remove_territories=True).get_fluseason_year(pd.to_datetime(dd)) == int(y):
+                dirs_with_dates.append((dd, d))
+        dirs_with_dates = sorted(dirs_with_dates)[:]
+        if not dirs_with_dates:
+            ax.set_title(f"{season}: no forecasts found")
+            continue
+        step = max(1, len(dirs_with_dates) // max(1, per_season_pick))
+        picked = dirs_with_dates[::step][:per_season_pick]
+        min_dref = min(d for d,_ in picked)
+        # national GT: use US row directly (no state summing)
+        gt_df = load_truth_for_season(season)
+        gt_us = gt_df[gt_df['location'].astype(str) == 'US'].sort_values('date')
+        left_bound = SEASON_XLIMS.get(season, (pd.to_datetime(start_date), None))[0]
+        right_bound = SEASON_XLIMS.get(season, (None, dt.datetime(int(season.split('-')[1]),5,31)))[1]
+        gt_us = gt_us[(gt_us['date'] >= left_bound) & (gt_us['date'] <= right_bound)]
+        x_dates = pd.to_datetime(gt_us['date'].values)
+        ax.plot(x_dates, gt_us['value'].values, color='k', lw=2)
+        palette = sns.color_palette('Dark2', n_colors=len(picked))
+        min_dref = min(d for d, _ in picked)
+        for i, (dref, dpath) in enumerate(picked):
+            arr = np.load(os.path.join(dpath, 'fluforecasts_ti.npy'))
+            nat = arr.sum(axis=-1)[:, 0, :]  # (n_samples, weeks)
+            x_weeks = forecast_week_saturdays(season, season_setup, nat.shape[1])
+            eff_len = min(len(x_weeks), nat.shape[1])
+            dates_plot = pd.to_datetime(x_weeks[:eff_len])
+            for lo, hi in flusight_quantile_pairs:
+                # Future
+                mask_fut = dates_plot >= pd.to_datetime(dref)
+                if np.any(mask_fut):
+                    lo_curve = np.quantile(nat[:, :eff_len], lo, axis=0)[mask_fut]
+                    hi_curve = np.quantile(nat[:, :eff_len], hi, axis=0)[mask_fut]
+                    ax.fill_between(dates_plot[mask_fut], lo_curve, hi_curve, color=palette[i], alpha=0.05, lw=0)
+                # Past (optional)
+                if SHOW_NPY_PAST:
+                    mask_past = (dates_plot >= left_bound) & (dates_plot < pd.to_datetime(dref))
+                    if np.any(mask_past):
+                        lo_curve_p = np.quantile(nat[:, :eff_len], lo, axis=0)[mask_past]
+                        hi_curve_p = np.quantile(nat[:, :eff_len], hi, axis=0)[mask_past]
+                        ax.fill_between(dates_plot[mask_past], lo_curve_p, hi_curve_p, color=palette[i], alpha=0.03, lw=0)
+            # Medians
+            mask_med_f = dates_plot >= pd.to_datetime(dref)
+            if np.any(mask_med_f):
+                med = np.quantile(nat[:, :eff_len], 0.5, axis=0)[mask_med_f]
+                ax.plot(dates_plot[mask_med_f], med, color=palette[i], lw=1.8)
+            if SHOW_NPY_PAST:
+                mask_med_p = (dates_plot >= left_bound) & (dates_plot < pd.to_datetime(dref))
+                if np.any(mask_med_p):
+                    med_p = np.quantile(nat[:, :eff_len], 0.5, axis=0)[mask_med_p]
+                    ax.plot(dates_plot[mask_med_p], med_p, color=palette[i], lw=1.0, alpha=0.7, ls=':')
+            rdt = pd.to_datetime(dref)
+            ax.axvline(rdt, color=palette[i], ls='--', lw=1)
+            ax.text(rdt, ax.get_ylim()[1]*0.95, str(rdt.date()), color=palette[i], rotation=90,
+                    ha='right', va='top', fontsize=8,
+                    bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'))
+        ax.set_title(f"{season}: NPY forecasts (US)")
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+        sns.despine(ax=ax, trim=True)
+        if iax == 0:
+            ax.set_ylabel('Incidence')
+        ax.set_xlabel('Date')
+        ax.set_xlim(left_bound, right_bound)
+        _format_date_axis(ax)
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    return fig
+
+
+fig = plot_npy_two_panel_national(
+    base_dir=INPAINTING_BASE,
+    model_id=BEST_MODEL_ID,
+    config=BEST_CONFIG,
+    seasons=("2023-2024", "2024-2025"),
+    per_season_pick=4,
+    save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_npy_two_panel_US.png"),
+)
+plt.close(fig)
+fig = plot_npy_multi_date_two_seasons(
+    base_dir=INPAINTING_BASE,
+    model_id=BEST_MODEL_ID,
+    config=BEST_CONFIG,
+    seasons=("2023-2024", "2024-2025"),
+    per_season_pick=4,
+    state='CA',
+    save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_npy_two_panel_state_CA.png"),
+)
+plt.close(fig)
+
+
+# ==== 4) Mask experiments: one figure per mask ====
+def _recreate_mask(gt: ground_truth.GroundTruth, mask_name: str):
+    mask = np.ones((CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    ss = gt.season_setup
+    if mask_name == 'missing_half_subpop':
+        half = len(ss.locations)//2
+        mask[:, :, :half] = 0
+    elif mask_name == 'missing_midseason':
+        start = pd.to_datetime(f"{gt.season_first_year}-12-07")
+        end = pd.to_datetime(f"{int(gt.season_first_year)+1}-01-07")
+        w0 = ss.get_season_week(start)
+        w1 = ss.get_season_week(end)
+        mask[:, w0-1:w1, :] = 0
+    elif mask_name == 'missing_midseason_peak':
+        start = pd.to_datetime(f"{int(gt.season_first_year)+1}-02-01")
+        end = pd.to_datetime(f"{int(gt.season_first_year)+1}-02-15")
+        w0 = ss.get_season_week(start)
+        w1 = ss.get_season_week(end)
+        mask[:, w0-1:w1, :] = 0
+    elif mask_name == 'missing_nc':
+        code = '37'
+        idx = ss.locations.index(code)
+        mask[:, :, idx] = 0
+    return mask
+
+
+def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str, states=('NC', 'CA')):
+    # build GT once
+    gt = ground_truth.GroundTruth(
+        season_first_year=season_year,
+        data_date=dt.datetime.today(),
+        mask_date=pd.to_datetime(forecast_date),
+        channels=CHANNELS,
+        image_size=IMAGE_SIZE,
+        nogit=True,
+    )
+    dates = pd.to_datetime(gt.gt_xarr['date'].values)
+    masks = [d for d in os.listdir(mask_dir) if os.path.isdir(os.path.join(mask_dir, d))]
+    if not masks:
+        print("No mask experiment subfolders found.")
+        return []
+
+    outs = []
+    for name in sorted(masks):
+        p = os.path.join(mask_dir, name, 'fluforecasts_ti.npy')
+        if not os.path.exists(p):
+            continue
+        arr = np.load(p)  # (n, c, w, p)
+        # states to show for this mask
+        chosen = list(states)
+        if name == 'missing_nc':
+            chosen = ['NC']
+        ncols = 1 + len(chosen)
+        fig, axes = plt.subplots(1, ncols, figsize=(5*ncols, 4.5), dpi=200)
+        if ncols == 2:
+            axes = [axes[0], axes[1]]
+        # Panel 1: mask overlay
+        mk = _recreate_mask(gt, name)
+        axes[0].imshow(gt.gt_xarr.data[0].T, cmap='Greys')
+        axes[0].imshow(mk[0].T, alpha=.3, cmap='rainbow')
+        axes[0].set_axis_off()
+
+        # Panels 2-3: states
+        palette = sns.color_palette('Set1', n_colors=len(chosen))
+        for j, st in enumerate(chosen):
+            ax = axes[j+1]
+            code = _state_to_code(st, gt.season_setup)
+            idx = gt.season_setup.locations.index(code)
+            gt_series = gt.gt_xarr.data[0, :, idx]
+            ax.plot(dates, gt_series, color='k', lw=1.5)
+            ts = arr[:, 0, :, idx]
+            # quantile fans and median (only where masked)
+            for lo, hi in flusight_quantile_pairs:
+                lo_curve = np.quantile(ts, lo, axis=0)
+                hi_curve = np.quantile(ts, hi, axis=0)
+                keep = mk[0, :len(lo_curve), idx]
+                lo_curve = lo_curve.copy(); hi_curve = hi_curve.copy()
+                lo_curve[keep == 1] = np.nan
+                hi_curve[keep == 1] = np.nan
+                ax.fill_between(dates[:len(lo_curve)], lo_curve, hi_curve, color=palette[j], alpha=0.06, lw=0)
+            med = np.quantile(ts, 0.5, axis=0)
+            med_masked = med.copy()
+            med_masked[mk[0, :len(med), idx] == 1] = np.nan
+            ax.plot(dates[:len(med_masked)], med_masked, color=palette[j], lw=1.8)
+            # corner label
+            ax.text(0.02, 0.98, st.upper(), transform=ax.transAxes, va='top', ha='left',
+                    fontsize=11, fontweight='bold', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+            ax.set_ylim(bottom=0)
+            ax.grid(True, alpha=0.3)
+            if j == 0:
+                ax.set_ylabel('Incident flu hospitalizations')
+            ax.set_xlabel('Date')
+            sns.despine(ax=ax, trim=True)
+        fig.tight_layout()
+        out_path = os.path.join(FIG_DIR, f"{_MODEL_NUM}_mask_{name}.png")
+        fig.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        outs.append(out_path)
+    return outs
+
+
+MASK_RESULTS_DIR = "from_longleaf/mask_experiments"
+MASK_SEASON_YEAR = "2024"
+MASK_FORECAST_DATE = "2025-05-14"
+
+if os.path.isdir(MASK_RESULTS_DIR):
+    outputs = plot_mask_experiments(
+        mask_dir=MASK_RESULTS_DIR,
+        season_year=MASK_SEASON_YEAR,
+        forecast_date=MASK_FORECAST_DATE,
+        states=('NC', 'CA'),
+    )
+    print("Mask figures:", outputs)
