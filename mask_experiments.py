@@ -33,21 +33,19 @@ import influpaint.utils.plotting as ip_plot
 
 # %%
 # Configuration
-SCENARIO_ID = 868  # i804::m_U500cRx124::ds_30S70M::tr_Sqrt::ri_No
 CONFIG_NAME = "celebahq_noTTJ5"
 IMAGE_SIZE = 64
 CHANNELS = 1
 BATCH_SIZE = 512
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
+EXPERIMENT_NAME = "paper-2025-07-22_training"
+SCENARIO_ID = 868
 # Season toggle - set to desired flu season year
 SEASON_YEAR = "2024"  # Change this to switch seasons
-FORECAST_DATE = "2025-05-14"  # Example forecast date
+
 
 print(f"Running mask experiments for scenario {SCENARIO_ID}")
 print(f"Device: {DEVICE}")
-print(f"Season: {SEASON_YEAR}")
-print(f"Forecast date: {FORECAST_DATE}")
 
 # %%
 # Setup season and scenario
@@ -73,22 +71,19 @@ print(f"Data mean: {data_mean}, Data std: {data_sd}")
 from influpaint.batch.inpainting import load_model
 from influpaint.batch.generate_inpainting_jobs import get_finished_models
 
-# Find the run_id for i804 model
-EXPERIMENT_NAME = "paper-2025-07-22_training"  # Your training experiment name
-TARGET_SCENARIO_ID = 868
 
-print(f"Finding run ID for scenario {TARGET_SCENARIO_ID} in {EXPERIMENT_NAME}...")
+print(f"Finding run ID for scenario {SCENARIO_ID} in {EXPERIMENT_NAME}...")
 finished_models = get_finished_models(EXPERIMENT_NAME)
 
 # Find the specific model for i804
 target_model = None
 for model in finished_models:
-    if model['scenario_id'] == TARGET_SCENARIO_ID:
+    if model['scenario_id'] == SCENARIO_ID:
         target_model = model
         break
 
 if target_model is None:
-    raise ValueError(f"No finished model found for scenario {TARGET_SCENARIO_ID} in {EXPERIMENT_NAME}")
+    raise ValueError(f"No finished model found for scenario {SCENARIO_ID} in {EXPERIMENT_NAME}")
 
 RUN_ID = target_model['run_id']
 print(f"Found run ID: {RUN_ID}")
@@ -100,29 +95,20 @@ model_source = load_model(ddpm, run_id=RUN_ID)
 print(f"Model loaded successfully: {model_source}")
 
 # %%
-# Setup ground truth for the forecast date
-forecast_dt = pd.to_datetime(FORECAST_DATE)
-season_first_year = str(season_setup.get_fluseason_year(forecast_dt))
 
-print(f"Creating ground truth for {forecast_dt.date()}")
-print(f"Detected flu season year: {season_first_year}")
+results = {}
+output_dir = f"mask_experiments_{SCENARIO_ID}_{CONFIG_NAME}"
+create_folders(output_dir)
 
-gt1 = ground_truth.GroundTruth(
-    season_first_year=season_first_year,
-    data_date=datetime.datetime.today(),
-    mask_date=forecast_dt,
-    channels=CHANNELS,
-    image_size=IMAGE_SIZE,
-    nogit=True
-)
+# %%
+# Setup CoPaint configuration
+available_configs = copaint_config_library(ddpm.timesteps)
+if CONFIG_NAME not in available_configs:
+    available = list(available_configs.keys())
+    raise ValueError(f"Config '{CONFIG_NAME}' not found. Available: {available}")
 
-# Prepare ground truth tensors
-gt_original = dataset.apply_transform(np.nan_to_num(gt1.gt_xarr.data, nan=0.0))
-gt_keep_mask_original = gt1.gt_keep_mask
-gt_tensor = torch.from_numpy(gt_original).type(torch.FloatTensor).to(DEVICE)
-
-print(f"Ground truth shape: {gt_original.shape}")
-print(f"Original mask shape: {gt_keep_mask_original.shape}")
+conf = available_configs[CONFIG_NAME]
+print(f"Using CoPaint config: {CONFIG_NAME}")
 
 # %%
 # Mask generation functions. 1 = mask out, 0 = keep
@@ -178,97 +164,105 @@ def mask_subpop(mask, location_codes, season_setup):
     return new_mask
 
 
-# %%
-masks = {}
-middle_start_date = f"{season_first_year}-12-07"
-middle_end_date = f"{int(season_first_year)+1}-01-07"
-
-gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-gt_keep_mask = mask_subpop(gt_keep_mask, gt1.season_setup.locations[:len(gt1.season_setup.locations)//2], gt1.season_setup)
-masks['missing_half_subpop'] = gt_keep_mask
-
-gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-gt_keep_mask = mask_dates(gt_keep_mask, [(middle_start_date, middle_end_date)], gt1.season_setup)
-masks['missing_midseason'] = gt_keep_mask
-
-gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-gt_keep_mask = mask_dates(gt_keep_mask, [("2025-02-01", "2025-02-15")], gt1.season_setup)
-masks['missing_midseason_peak'] = gt_keep_mask
-
-gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
-gt_keep_mask = mask_subpop(gt_keep_mask, ["37"], gt1.season_setup)
-masks['missing_nc'] = gt_keep_mask
-
-for i, (name, mask) in enumerate(masks.items()):
-    ip_plot.plot_mask(gt_xarr=gt1.gt_xarr, gt_keep_mask=mask, channel=0)
 
 # %%
-
-
-# %%
-# Setup CoPaint configuration
-available_configs = copaint_config_library(ddpm.timesteps)
-if CONFIG_NAME not in available_configs:
-    available = list(available_configs.keys())
-    raise ValueError(f"Config '{CONFIG_NAME}' not found. Available: {available}")
-
-conf = available_configs[CONFIG_NAME]
-print(f"Using CoPaint config: {CONFIG_NAME}")
-
-# %%
-# Run inpainting experiments on each mask
-results = {}
-output_dir = f"mask_experiments_{SCENARIO_ID}_{CONFIG_NAME}"
-create_folders(output_dir)
-
-for mask_name, mask in masks.items():
-    # Convert mask to tensor
-    gt_keep_mask_tensor = torch.from_numpy(mask).type(torch.FloatTensor).to(DEVICE)
-    
-    # Create sampler
-    sampler = O_DDIMSampler(
-        use_timesteps=np.arange(ddpm.timesteps),
-        conf=conf,
-        betas=ddpm.betas,
-        model_mean_type=None,
-        model_var_type=None,
-        loss_type=None
+# Setup ground truth for the forecast date
+for season_first_year in ["2023", "2024"]:
+    gt1 = ground_truth.GroundTruth(
+        season_first_year=season_first_year,
+        data_date=datetime.datetime.today(),
+        mask_date=pd.to_datetime(f"{int(season_first_year)+1}-07-29"),
+        channels=CHANNELS,
+        image_size=IMAGE_SIZE,
+        nogit=True
     )
+
+    # Prepare ground truth tensors
+    gt_original = dataset.apply_transform(np.nan_to_num(gt1.gt_xarr.data, nan=0.0))
+    gt_keep_mask_original = gt1.gt_keep_mask
+    gt_tensor = torch.from_numpy(gt_original).type(torch.FloatTensor).to(DEVICE)
+
+    print(f"Ground truth shape: {gt_original.shape}")
+    print(f"Original mask shape: {gt_keep_mask_original.shape}")
+
+    masks = {}
+
+    # date stuff:
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_dates(gt_keep_mask, [(f"{season_first_year}-12-07", f"{int(season_first_year)+1}-01-07")], gt1.season_setup)
+    masks['missing_midseason'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_dates(gt_keep_mask, [("{int(season_first_year)+1}-02-01", "{int(season_first_year)+1}-02-15")], gt1.season_setup)
+    masks['missing_midseason_peak'] = gt_keep_mask
+
+
+    # location stuff
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, gt1.season_setup.locations[:len(gt1.season_setup.locations)//2], gt1.season_setup)
+    masks['missing_half_subpop'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["37"], gt1.season_setup)
+    masks['missing_nc'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["06"], gt1.season_setup)
+    masks['missing_ca'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["17"], gt1.season_setup)
+    masks['missing_ca'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["06", "37", "58", "42", "53"], gt1.season_setup)
+    masks['missing_five'] = gt_keep_mask
+
+    gt_keep_mask = np.ones((CHANNELS,IMAGE_SIZE,IMAGE_SIZE))
+    gt_keep_mask = mask_subpop(gt_keep_mask, ["13", "49", "18" "36", "24"], gt1.season_setup)
+    masks['missing_five'] = gt_keep_mask
     
-    # Run sampling
-    result = sampler.p_sample_loop(
-        model_fn=ddpm.model,
-        shape=(BATCH_SIZE, CHANNELS, IMAGE_SIZE, IMAGE_SIZE),
-        conf=conf,
-        model_kwargs={
-            "gt": gt_tensor.repeat(BATCH_SIZE, 1, 1, 1),
-            "gt_keep_mask": gt_keep_mask_tensor.repeat(BATCH_SIZE, 1, 1, 1),
-            "mymodel": True,
-        }
-    )
-    
-    # Process results
-    fluforecasts = np.array(result['sample'].cpu())
-    fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
-    forecasts_national = fluforecasts_ti.sum(axis=-1)
-    
-    results[mask_name] = {
-        'fluforecasts': fluforecasts,
-        'fluforecasts_ti': fluforecasts_ti,
-        'forecasts_national': forecasts_national,
-    }
-    
-    mask_dir = f"{output_dir}/{mask_name}"
-    create_folders(mask_dir)
-    
-    np.save(f"{mask_dir}/fluforecasts.npy", fluforecasts)
-    np.save(f"{mask_dir}/fluforecasts_ti.npy", fluforecasts_ti)
+
+    for i, (name, mask) in enumerate(masks.items()):
+        ip_plot.plot_mask(gt_xarr=gt1.gt_xarr, gt_keep_mask=mask, channel=0)
+
+    for mask_name, mask in masks.items():
+        # Convert mask to tensor
+        gt_keep_mask_tensor = torch.from_numpy(mask).type(torch.FloatTensor).to(DEVICE)
+        
+        # Create sampler
+        sampler = O_DDIMSampler(
+            use_timesteps=np.arange(ddpm.timesteps),
+            conf=conf,
+            betas=ddpm.betas,
+            model_mean_type=None,
+            model_var_type=None,
+            loss_type=None
+        )
+        
+        # Run sampling
+        result = sampler.p_sample_loop(
+            model_fn=ddpm.model,
+            shape=(BATCH_SIZE, CHANNELS, IMAGE_SIZE, IMAGE_SIZE),
+            conf=conf,
+            model_kwargs={
+                "gt": gt_tensor.repeat(BATCH_SIZE, 1, 1, 1),
+                "gt_keep_mask": gt_keep_mask_tensor.repeat(BATCH_SIZE, 1, 1, 1),
+                "mymodel": True,
+            }
+        )
+        
+        # Process results
+        fluforecasts = np.array(result['sample'].cpu())
+        fluforecasts_ti = dataset.apply_transform_inv(fluforecasts)
+        
+        mask_dir = f"{output_dir}/{mask_name}_season{season_first_year}"
+        create_folders(mask_dir)
+        
+        np.save(f"{mask_dir}/fluforecasts.npy", fluforecasts)
+        np.save(f"{mask_dir}/fluforecasts_ti.npy", fluforecasts_ti)
+        np.save(f"{mask_dir}/mask.npy", mask)
+        np.save(f"{mask_dir}/ground_truth.npy", gt1.gt_xarr.data)
 
 print(f"\nResults saved to: {output_dir}")
 print("Mask experiment completed!")
-
-# %%
-
-# %%
-
-# %%
