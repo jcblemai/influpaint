@@ -470,7 +470,7 @@ def plot_scatter(data, x_col, y_col, xlabel, ylabel, scale_y=False, ax=None, sho
     # Add scatter points for different inpainting configs with unique markers
     config_markers = {
         'noTTJ5': 'D',      # Large cross
-        'try3': 'o ',        # Plus
+        'try3': 'o',        # Plus
         'celebahq': 'X'     # Diamond
     }
     
