@@ -33,7 +33,7 @@ import influpaint.utils.plotting as ip_plot
 
 # %%
 # Configuration
-SCENARIO_ID = 804  # i804::m_U500cRx124::ds_30S70M::tr_Sqrt::ri_No
+SCENARIO_ID = 868  # i804::m_U500cRx124::ds_30S70M::tr_Sqrt::ri_No
 CONFIG_NAME = "celebahq_noTTJ5"
 IMAGE_SIZE = 64
 CHANNELS = 1
@@ -75,7 +75,7 @@ from influpaint.batch.generate_inpainting_jobs import get_finished_models
 
 # Find the run_id for i804 model
 EXPERIMENT_NAME = "paper-2025-07-22_training"  # Your training experiment name
-TARGET_SCENARIO_ID = 804
+TARGET_SCENARIO_ID = 868
 
 print(f"Finding run ID for scenario {TARGET_SCENARIO_ID} in {EXPERIMENT_NAME}...")
 finished_models = get_finished_models(EXPERIMENT_NAME)
@@ -218,7 +218,7 @@ print(f"Using CoPaint config: {CONFIG_NAME}")
 # %%
 # Run inpainting experiments on each mask
 results = {}
-output_dir = f"mask_experiments"
+output_dir = f"mask_experiments_{SCENARIO_ID}_{CONFIG_NAME}"
 create_folders(output_dir)
 
 for mask_name, mask in masks.items():
