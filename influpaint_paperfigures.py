@@ -448,12 +448,15 @@ def fig_unconditional_3d_heat_ridges_plotly(inv_samples: np.ndarray,
     else:
         stride = max(1, int(location_stride))
         place_idxs = list(range(0, P, stride))
+        if len(place_idxs) > 2:
+            place_idxs = place_idxs[1:-1]
         locdf = season_axis.locations_df
         if 'abbreviation' in locdf.columns:
             abbr_map = locdf.set_index('location_code')['abbreviation']
             labels = [abbr_map.get(str(season_axis.locations[i]), str(season_axis.locations[i])) for i in place_idxs]
         else:
             labels = [str(season_axis.locations[i]) for i in place_idxs]
+        labels = [str(l).upper() for l in labels]
 
     # Add ridge lines
     for pi, lab in zip(place_idxs, labels):
