@@ -1071,20 +1071,10 @@ def _recreate_mask(gt: ground_truth.GroundTruth, mask_name: str):
     return mask
 
 
-def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str,
+def plot_mask_experiments(mask_dir: str, forecast_date: str,
                           states=('NC', 'CA'),
                           n_sample_trajs: int = 10,
                           plot_median: bool = True):
-    # build GT once
-    gt = ground_truth.GroundTruth(
-        season_first_year=season_year,
-        data_date=dt.datetime.today(),
-        mask_date=pd.to_datetime(forecast_date),
-        channels=CHANNELS,
-        image_size=IMAGE_SIZE,
-        nogit=True,
-    )
-    dates = pd.to_datetime(gt.gt_xarr['date'].values)
     masks = [d for d in os.listdir(mask_dir) if os.path.isdir(os.path.join(mask_dir, d))]
     if not masks:
         print("No mask experiment subfolders found.")
@@ -1092,61 +1082,106 @@ def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str,
 
     outs = []
     for name in sorted(masks):
-        p = os.path.join(mask_dir, name, 'fluforecasts_ti.npy')
-        if not os.path.exists(p):
+        # Determine season from folder name if present
+        season_detect = None
+        try:
+            import re
+            m = re.search(r"_season(\d{4})", name)
+            if m:
+                season_detect = m.group(1)
+        except Exception:
+            season_detect = None
+        season_use = season_detect
+
+        
+        # Build GT for this season
+        gt = ground_truth.GroundTruth(
+            season_first_year=str(season_use),
+            data_date=dt.datetime.today(),
+            mask_date=pd.to_datetime(forecast_date),
+            channels=CHANNELS,
+            image_size=IMAGE_SIZE,
+            nogit=True,
+        )
+        dates = pd.to_datetime(gt.gt_xarr['date'].values)
+
+        # Load data
+        subdir = os.path.join(mask_dir, name)
+        f_path = os.path.join(subdir, 'fluforecasts_ti.npy')
+        m_path = os.path.join(subdir, 'mask.npy')
+        if not (os.path.exists(f_path) and os.path.exists(m_path)):
             continue
-        arr = np.load(p)  # (n, c, w, p)
-        # states to show for this mask
-        chosen = list(states)
-        if name == 'missing_nc':
-            chosen = ['NC']
-        if name == 'missing_half_subpop':
-            chosen = ['IN','MD', 'CA', 'HI', 'KY']
-        ncols = 1 + len(chosen)
+        arr = np.load(f_path)
+        mk = np.load(m_path)
+
+        # Choose locations: if exactly 5 masked locations -> plot those; else pick up to 5 masked
+        p_len = len(gt.season_setup.locations)
+        masked_any = (mk[0, :arr.shape[2], :p_len] == 0).any(axis=0)
+        masked_idx = np.where(masked_any)[0].tolist()
+        if len(masked_idx) == 5:
+            plot_indices = masked_idx
+        elif len(masked_idx) > 0:
+            plot_indices = masked_idx[:5]
+        else:
+            # fallback to provided states
+            plot_indices = []
+            for st in (states if isinstance(states, (list, tuple)) else [states]):
+                code = _state_to_code(st, gt.season_setup)
+                plot_indices.append(gt.season_setup.locations.index(code))
+            plot_indices = plot_indices[:5]
+
+        # Labels
+        locdf = gt.season_setup.locations_df
+        abbr_map = None
+        if 'abbreviation' in locdf.columns:
+            abbr_map = locdf.set_index('location_code')['abbreviation']
+        labels = [abbr_map.get(str(gt.season_setup.locations[i]), str(gt.season_setup.locations[i])) if abbr_map is not None else str(gt.season_setup.locations[i]) for i in plot_indices]
+
+        ncols = 1 + len(plot_indices)
         fig, axes = plt.subplots(1, ncols, figsize=(5*ncols, 4.5), dpi=200)
         if ncols == 2:
             axes = [axes[0], axes[1]]
-        # Panel 1: mask overlay
-        mk = _recreate_mask(gt, name)
-        axes[0].imshow(gt.gt_xarr.data[0].T, cmap='Greys')
-        axes[0].imshow(mk[0].T, alpha=.3, cmap='rainbow')
+        # Mask overlay
+        base_crop = gt.gt_xarr.data[0][:52, :52]
+        mask_crop = mk[0][:52, :52]
+        axes[0].imshow(base_crop.T, cmap='Greys', aspect='equal')
+        axes[0].imshow(mask_crop.T, alpha=.3, cmap='rainbow', aspect='equal')
+        axes[0].set_aspect('equal')
         axes[0].set_axis_off()
 
-        # Panels 2-3: states
-        palette = sns.color_palette('Set1', n_colors=len(chosen))
-        for j, st in enumerate(chosen):
+        palette = sns.color_palette('Set1', n_colors=len(plot_indices))
+        for j, (idx, lab) in enumerate(zip(plot_indices, labels)):
             ax = axes[j+1]
             code = _state_to_code(st, gt.season_setup)
             idx = gt.season_setup.locations.index(code)
             gt_series = gt.gt_xarr.data[0, :, idx]
             ax.plot(dates, gt_series, color='k', lw=1.5)
             ts = arr[:, 0, :, idx]
-            # Light sampled trajectories (only over masked segments)
+            # Sample trajectories (only where masked)
             if n_sample_trajs and n_sample_trajs > 0:
                 ns = min(n_sample_trajs, ts.shape[0])
                 sample_idxs = np.linspace(0, ts.shape[0]-1, num=ns, dtype=int)
-                keep = mk[0, :ts.shape[1], idx]  # 1 means observed
+                keep = mk[0, :ts.shape[1], idx]
                 for si in sample_idxs:
-                    y = ts[si, :len(dates)]
-                    y = y.copy()
+                    y = ts[si, :len(dates)].copy()
                     y[keep == 1] = np.nan
                     ax.plot(dates[:len(y)], y, color=palette[j], alpha=0.25, lw=0.7)
-            # quantile fans and median (only where masked)
+            # Quantile fans and median (only where masked)
             for lo, hi in flusight_quantile_pairs:
                 lo_curve = np.quantile(ts, lo, axis=0)
                 hi_curve = np.quantile(ts, hi, axis=0)
-                keep = mk[0, :len(lo_curve), idx]
+                keepw = mk[0, :len(lo_curve), idx]
                 lo_curve = lo_curve.copy(); hi_curve = hi_curve.copy()
-                lo_curve[keep == 1] = np.nan
-                hi_curve[keep == 1] = np.nan
+                lo_curve[keepw == 1] = np.nan
+                hi_curve[keepw == 1] = np.nan
                 ax.fill_between(dates[:len(lo_curve)], lo_curve, hi_curve, color=palette[j], alpha=0.06, lw=0)
             if plot_median:
                 med = np.quantile(ts, 0.5, axis=0)
                 med_masked = med.copy()
                 med_masked[mk[0, :len(med), idx] == 1] = np.nan
                 ax.plot(dates[:len(med_masked)], med_masked, color=palette[j], lw=1.8)
-            # corner label
-            ax.text(0.02, 0.98, st.upper(), transform=ax.transAxes, va='top', ha='left',
+            # Corner label
+            ax.text(0.02, 0.98, str(lab).upper(), transform=ax.transAxes, va='top', ha='left',
                     fontsize=11, fontweight='bold', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
             ax.set_ylim(bottom=0)
             ax.grid(True, alpha=0.3)
@@ -1155,7 +1190,9 @@ def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str,
             ax.set_xlabel('Date')
             sns.despine(ax=ax, trim=True)
         fig.tight_layout()
-        out_path = os.path.join(FIG_DIR, f"{_MODEL_NUM}_mask_{name}.png")
+    
+        os.makedirs(os.path.join(FIG_DIR, "mask_figures"), exist_ok=True)
+        out_path = os.path.join(FIG_DIR, "mask_figures", f"{_MODEL_NUM}_mask_{name}.png")
         fig.savefig(out_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         outs.append(out_path)
@@ -1163,15 +1200,13 @@ def plot_mask_experiments(mask_dir: str, season_year: str, forecast_date: str,
 
 
 MASK_RESULTS_DIR = "from_longleaf/mask_experiments_868_celebahq_noTTJ5/"
-MASK_SEASON_YEAR = "2024"
 MASK_FORECAST_DATE = "2025-05-14"
 
 if os.path.isdir(MASK_RESULTS_DIR):
     outputs = plot_mask_experiments(
         mask_dir=MASK_RESULTS_DIR,
-        season_year=MASK_SEASON_YEAR,
         forecast_date=MASK_FORECAST_DATE,
         states=('NC', 'CA'),
-        plot_median=PLOT_MEDIAN,
+        plot_median=False,
     )
     print("Mask figures:", outputs)
