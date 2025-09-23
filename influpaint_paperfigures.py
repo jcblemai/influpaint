@@ -522,7 +522,8 @@ def load_truth_for_season(season: str) -> pd.DataFrame:
 def plot_csv_quantile_fans_for_season(season: str, base_dir: str, model_id: str, config: str,
                                       pick_every: int = 2, state='US',
                                       start_date: str = '2023-10-07',
-                                      save_path: str | None = None):
+                                      save_path: str | None = None,
+                                      plot_median: bool = True):
     states = state if isinstance(state, (list, tuple)) else [state]
     n = len(states)
     # Layout: for readability, use 2 rows when many states
