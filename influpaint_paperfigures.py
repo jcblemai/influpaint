@@ -27,7 +27,7 @@ from influpaint.utils import ground_truth
 IMAGE_SIZE = 64
 CHANNELS = 1
 
-PLOT_MEDIAN = False
+PLOT_MEDIAN = True
 
 BEST_MODEL_ID = "i868"
 BEST_CONFIG = "celebahq_noTTJ5"
@@ -248,7 +248,7 @@ fig = plot_unconditional_states_quantiles_and_trajs(
     season_axis=season_setup,
     states=['NC', 'CA', 'NY', 'TX', 'FL'],
     n_sample_trajs=10,
-    plot_median=True,
+    plot_median=PLOT_MEDIAN,
     save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_uncond_states_quantiles_trajs.png"),
 )
 plt.close(fig)
@@ -593,7 +593,7 @@ def plot_csv_quantile_fans_for_season(season: str, base_dir: str, model_id: str,
                         ax.fill_between(x[mask], low["value"].values[mask], up["value"].values[mask],
                                         color=palette[j], alpha=0.08, lw=0)
             med = sub[np.isclose(sub["q"], 0.5)].sort_values("target_end_date")
-            if len(med):
+            if plot_median and len(med):
                 x = pd.to_datetime(med["target_end_date"]).values
                 mask = (x >= np.datetime64(left_bound)) & (x <= np.datetime64(right_bound))
                 if np.any(mask):
@@ -628,7 +628,8 @@ def plot_csv_quantile_fans_for_season(season: str, base_dir: str, model_id: str,
 
 def plot_csv_quantile_fans_multiseasons(seasons: list, base_dir: str, model_id: str, config: str,
                                         states: list, pick_every: int = 2,
-                                        save_path: str | None = None):
+                                        save_path: str | None = None,
+                                        plot_median: bool = True):
     """Plot CSV forecast fans over full multi-season ground truth for multiple states.
 
     - seasons: list like ['2023-2024','2024-2025']
@@ -712,7 +713,7 @@ def plot_csv_quantile_fans_multiseasons(seasons: list, base_dir: str, model_id: 
                     ax.fill_between(x, low["value"].values, up["value"].values, color=palette[i], alpha=0.08, lw=0)
             # median
             med = sub[np.isclose(sub["q"], 0.5)].sort_values("target_end_date")
-            if len(med):
+            if plot_median and len(med):
                 x = pd.to_datetime(med["target_end_date"]).values
                 ax.plot(x, med["value"].values, color=palette[i], lw=2)
                 rdt = pd.to_datetime(r)
@@ -743,6 +744,7 @@ fig = plot_csv_quantile_fans_multiseasons(
     states=['US','NC','CA','NY','TX','FL'],
     pick_every=2,
     save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_csv_fans_states_2023_2025.png"),
+    plot_median=PLOT_MEDIAN,
 )
 if fig is not None:
     plt.close(fig)
@@ -758,6 +760,7 @@ for _season in ["2023-2024", "2024-2025"]:
         pick_every=2,
         state=_csv_states,
         save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_forecast_csv_fans_states_{_season.replace('-', '_')}.png"),
+        plot_median=PLOT_MEDIAN,
     )
     if _fig is not None:
         plt.close(_fig)
@@ -1152,8 +1155,6 @@ def plot_mask_experiments(mask_dir: str, forecast_date: str,
         palette = sns.color_palette('Set1', n_colors=len(plot_indices))
         for j, (idx, lab) in enumerate(zip(plot_indices, labels)):
             ax = axes[j+1]
-            code = _state_to_code(st, gt.season_setup)
-            idx = gt.season_setup.locations.index(code)
             gt_series = gt.gt_xarr.data[0, :, idx]
             ax.plot(dates, gt_series, color='k', lw=1.5)
             ts = arr[:, 0, :, idx]
