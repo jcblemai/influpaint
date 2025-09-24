@@ -318,7 +318,7 @@ def fig_unconditional_3d_heat_ridges(inv_samples: np.ndarray,
     # Plot bottom colored surface (flat at z=0)
     surf = ax.plot_surface(X, Y, Z0, rstride=1, cstride=1,
                            facecolors=facecolors[:-1, :-1], shade=False,
-                           linewidth=0, antialiased=False, alpha=surface_alpha)
+                           linewidth=0, antialiased=False, alpha=1)
     surf.set_zsort('max')
 
     # Choose locations for ridges
@@ -327,7 +327,7 @@ def fig_unconditional_3d_heat_ridges(inv_samples: np.ndarray,
         labels = [s.upper() for s in states]
     else:
         stride = max(1, int(location_stride))
-        place_idxs = list(range(0, P, stride))
+        place_idxs = list(range(0, P, stride))[1:-1]  # Remove first (AL) and last (WY)
         # readable labels using abbreviations if available
         locdf = season_axis.locations_df
         if 'abbreviation' in locdf.columns:
@@ -348,15 +348,12 @@ def fig_unconditional_3d_heat_ridges(inv_samples: np.ndarray,
         else:
             z = np.nanmedian(ts, axis=0)
         y_curve = np.full_like(x_vals, fill_value=pi)
-        # Optional ribbon fill under the curve down to z=0
+        # Optional ribbon fill under the curve using vertical lines
         if fill_ridges:
-            Xf = np.vstack([x_vals, x_vals])
-            Yf = np.vstack([y_curve, y_curve])
-            Zf = np.vstack([z + ridge_offset, np.zeros_like(z)])
-            ax.plot_surface(Xf, Yf, Zf,
-                            color=ridge_colors[j], alpha=fill_alpha,
-                            linewidth=0, antialiased=False, shade=False)
-        ax.plot(x_vals, y_curve, z + ridge_offset, color=ridge_colors[j], lw=2.0, zorder=100-place_idxs[j])
+            for k in range(len(x_vals)):
+                ax.plot([x_vals[k], x_vals[k]], [pi, pi], [ridge_offset * 0.1, z[k] + ridge_offset], 
+                       color=ridge_colors[j], alpha=fill_alpha, lw=1.5, zorder=50-pi)
+        ax.plot(x_vals, y_curve, z + ridge_offset, color=ridge_colors[j], lw=2.0, zorder=100-place_idxs[j], marker='.', markersize=4)
         # Label near end of ridge
         ax.text(x_vals[-1]+0.5, pi, (z[-1] + ridge_offset), lab, color=ridge_colors[j], fontsize=9, ha='left', va='center')
 
@@ -384,7 +381,7 @@ fig3d, _ = fig_unconditional_3d_heat_ridges(
     season_axis=season_setup,
     states=None,
     stat='median',
-    location_stride=5,
+    location_stride=10,
     elev=20,
     azim=-110,
     save_path=os.path.join(FIG_DIR, f"{_MODEL_NUM}_uncond_3d_heat_ridges.png"),
